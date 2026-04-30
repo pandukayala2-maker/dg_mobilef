@@ -4,7 +4,7 @@
     "slug": "dgmobile",
     "version": "1.0.5",
     "orientation": "portrait",
-    "icon": "./assets/ansoftt_logo_padded.png",
+    "icon": "./assets/appicon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "dgmobile",
     "splash": {
@@ -21,7 +21,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/ansoftt_logo_padded.png",
+        "foregroundImage": "./assets/appicon.png",
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.ansoftt.dc",

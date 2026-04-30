@@ -509,8 +509,12 @@ function RecordingModal({ onSave, onClose, authToken }) {
 }
 
 /* ═══════════════════════════════ Main Screen ═══════════════════════════════ */
+import { useAppContext } from '@/context/AppContext';
+
 export default function AiNotetakerScreen() {
   const { logout, user, token } = useAuth();
+  const { isDark, language } = useAppContext();
+  const isAR = language === 'ar';
   const router = useRouter();
   const insets = useSafeAreaInsets();
   // Per-user storage key so each person's notes are isolated
@@ -528,20 +532,24 @@ export default function AiNotetakerScreen() {
     };
 
     if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to sign out?')) {
+      if (window.confirm(isAR ? 'هل أنت متأكد أنك تريد تسجيل الخروج؟' : 'Are you sure you want to sign out?')) {
         performLogout();
       }
       return;
     }
 
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: performLogout,
-      },
-    ]);
+    Alert.alert(
+      isAR ? 'تسجيل الخروج' : 'Sign Out',
+      isAR ? 'هل أنت متأكد أنك تريد تسجيل الخروج؟' : 'Are you sure you want to sign out?',
+      [
+        { text: isAR ? 'إلغاء' : 'Cancel', style: 'cancel' },
+        {
+          text: isAR ? 'تسجيل الخروج' : 'Sign Out',
+          style: 'destructive',
+          onPress: performLogout,
+        },
+      ]
+    );
   };
 
   useEffect(() => {
@@ -711,37 +719,44 @@ export default function AiNotetakerScreen() {
   const handleDeleteNote = async (id) => {
     // On web, use native browser confirm for reliable multi-action confirmation.
     if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.confirm === 'function') {
-      const ok = window.confirm('Delete this note permanently?');
+      const ok = window.confirm(isAR ? 'حذف هذه الملاحظة نهائياً؟' : 'Delete this note permanently?');
       if (!ok) return;
       await deleteNoteById(id);
       return;
     }
 
-    Alert.alert('Delete Note', 'Delete this note permanently?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          deleteNoteById(id);
+    Alert.alert(
+      isAR ? 'حذف الملاحظة' : 'Delete Note',
+      isAR ? 'حذف هذه الملاحظة نهائياً؟' : 'Delete this note permanently?',
+      [
+        { text: isAR ? 'إلغاء' : 'Cancel', style: 'cancel' },
+        {
+          text: isAR ? 'حذف' : 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteNoteById(id);
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   const filtered = notes.filter((n) =>
     n.title.toLowerCase().includes(search.toLowerCase())
   );
 
+  const bg = isDark ? '#0f172a' : '#f8f9fa';
+  const textClr = isDark ? '#f8fafc' : '#111';
+
   return (
-    <View style={styles.safe}>
+    <View style={[styles.safe, { backgroundColor: bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={BRAND} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) + 6 }]}> 
-        <View style={styles.headerLeft}>
-          <Ionicons name="mic" size={20} color="#fff" style={{ marginRight: 8 }} />
-          <Text style={styles.headerTitle}>AI Notetaker</Text>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) + 6, flexDirection: isAR ? 'row-reverse' : 'row' }]}> 
+        <View style={[styles.headerLeft, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+          <Ionicons name="mic" size={20} color="#fff" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
+          <Text style={styles.headerTitle}>{isAR ? 'ملاحظات الذكاء الاصطناعي' : 'AI Notetaker'}</Text>
         </View>
         <TouchableOpacity onPress={handleLogout} hitSlop={10}>
           <Ionicons name="log-out-outline" size={22} color="#fff" />
@@ -749,11 +764,11 @@ export default function AiNotetakerScreen() {
       </View>
 
       {/* Search */}
-      <View style={styles.searchWrap}>
-        <Ionicons name="search-outline" size={18} color="#999" style={{ marginRight: 8 }} />
+      <View style={[styles.searchWrap, { backgroundColor: isDark ? '#1e293b' : '#fff', borderColor: isDark ? '#334155' : '#eaeaea', flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+        <Ionicons name="search-outline" size={18} color="#999" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
         <TextInput
-          style={styles.searchInput}
-          placeholder="Search notes..."
+          style={[styles.searchInput, { color: textClr, textAlign: isAR ? 'right' : 'left' }]}
+          placeholder={isAR ? "البحث في الملاحظات..." : "Search notes..."}
           placeholderTextColor="#999"
           value={search}
           onChangeText={setSearch}
@@ -784,13 +799,13 @@ export default function AiNotetakerScreen() {
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={styles.noteItem}
+            style={[styles.noteItem, { backgroundColor: isDark ? '#1e293b' : '#fff' }]}
             onPress={() => item.status === 'done' && setSelectedNote(item)}
             activeOpacity={0.7}
           >
-            <View style={styles.noteHeader}>
+            <View style={[styles.noteHeader, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
               <Text style={styles.noteTime}>{formatRelative(item.createdAt)}</Text>
-              <View style={styles.noteHeaderRight}>
+              <View style={[styles.noteHeaderRight, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
                 {item.duration ? (
                   <Text style={styles.noteDuration}>{formatDuration(item.duration)}</Text>
                 ) : null}
@@ -807,22 +822,22 @@ export default function AiNotetakerScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.noteTitle} numberOfLines={2}>{item.title}</Text>
+            <Text style={[styles.noteTitle, { color: textClr, textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>{item.title}</Text>
             {item.transcript ? (
-              <Text style={styles.notePreview} numberOfLines={2}>
+              <Text style={[styles.notePreview, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>
                 {item.transcript}
               </Text>
             ) : null}
-            <View style={styles.badgeRow}>
+            <View style={[styles.badgeRow, { justifyContent: isAR ? 'flex-end' : 'flex-start' }]}>
               {item.status === 'processing' ? (
-                <View style={styles.badge}>
+                <View style={[styles.badge, { backgroundColor: isDark ? '#334155' : '#F2F2F2' }]}>
                   <ActivityIndicator size={10} color="#888" style={{ marginRight: 4 }} />
-                  <Text style={styles.badgeText}>Processing</Text>
+                  <Text style={styles.badgeText}>{isAR ? 'جاري المعالجة' : 'Processing'}</Text>
                 </View>
               ) : item.ai ? (
-                <View style={[styles.badge, styles.badgeAI]}>
-                  <Ionicons name="sparkles" size={12} color={BRAND} style={{ marginRight: 3 }} />
-                  <Text style={styles.badgeAIText}>AI Summary</Text>
+                <View style={[styles.badge, styles.badgeAI, { backgroundColor: isDark ? '#1e3a47' : '#EDF5F3' }]}>
+                  <Ionicons name="sparkles" size={12} color={BRAND} style={{ marginRight: isAR ? 0 : 3, marginLeft: isAR ? 3 : 0 }} />
+                  <Text style={styles.badgeAIText}>{isAR ? 'ملخص الذكاء الاصطناعي' : 'AI Summary'}</Text>
                 </View>
               ) : null}
             </View>
@@ -832,13 +847,13 @@ export default function AiNotetakerScreen() {
       />
 
       {/* Footer */}
-      <View style={[styles.footer, { paddingBottom: Math.max(20, insets.bottom + 10) }]}>
+      <View style={[styles.footer, { paddingBottom: Math.max(20, insets.bottom + 10), flexDirection: isAR ? 'row-reverse' : 'row' }]}>
         <TouchableOpacity style={styles.textNoteBtn} onPress={() => setTyping(true)} activeOpacity={0.7}>
           <Ionicons name="create-outline" size={22} color={BRAND} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.takeNoteBtn} onPress={() => setRecording(true)} activeOpacity={0.85}>
-          <Ionicons name="mic" size={22} color="#fff" style={{ marginRight: 8 }} />
-          <Text style={styles.takeNoteBtnText}>Record Note</Text>
+        <TouchableOpacity style={[styles.takeNoteBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={() => setRecording(true)} activeOpacity={0.85}>
+          <Ionicons name="mic" size={22} color="#fff" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
+          <Text style={styles.takeNoteBtnText}>{isAR ? 'تسجيل ملاحظة' : 'Record Note'}</Text>
         </TouchableOpacity>
       </View>
 

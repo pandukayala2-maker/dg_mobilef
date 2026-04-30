@@ -58,7 +58,7 @@ export default function LoginScreen() {
         {/* Logo */}
         <View style={styles.logoWrap}>
           <Image
-            source={require('../../assets/ansoftt_logo.png')}
+            source={require('../../assets/appicon.png')}
             style={styles.logoImg}
             resizeMode="contain"
           />

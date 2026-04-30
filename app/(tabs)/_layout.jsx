@@ -1,8 +1,10 @@
 import { Tabs } from 'expo-router';
 import { View, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAppContext } from '@/context/AppContext';
 
 const CORAL = '#1b4654';
+const YELLOW = '#FFEB3B';
 
 function TabIcon({ name, color, size, focused }) {
   return (
@@ -13,13 +15,21 @@ function TabIcon({ name, color, size, focused }) {
 }
 
 export default function TabsLayout() {
+  const { isDark } = useAppContext();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: CORAL,
-        tabBarInactiveTintColor: '#94A3B8',
+        tabBarStyle: [
+          styles.tabBar, 
+          { 
+            backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+            borderTopColor: isDark ? '#1E293B' : '#F1F5F9'
+          }
+        ],
+        tabBarActiveTintColor: isDark ? YELLOW : CORAL,
+        tabBarInactiveTintColor: isDark ? '#64748B' : '#94A3B8',
         tabBarLabelStyle: styles.tabLabel,
         tabBarHideOnKeyboard: true,
       }}
@@ -34,11 +44,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="scan"
+        name="calendar"
         options={{
-          title: 'Scan',
+          title: 'Calendar',
           tabBarIcon: ({ color, size, focused }) => (
-            <TabIcon name={focused ? 'qr-code' : 'qr-code-outline'} color={color} size={size + 4} focused={focused} />
+            <TabIcon name={focused ? 'calendar' : 'calendar-outline'} color={color} size={size} focused={focused} />
           ),
         }}
       />
@@ -48,6 +58,15 @@ export default function TabsLayout() {
           title: 'AI Note',
           tabBarIcon: ({ color, size, focused }) => (
             <TabIcon name={focused ? 'mic' : 'mic-outline'} color={color} size={size} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="scan"
+        options={{
+          title: 'Scanner',
+          tabBarIcon: ({ color, size, focused }) => (
+            <TabIcon name={focused ? 'scan' : 'scan-outline'} color={color} size={size} focused={focused} />
           ),
         }}
       />

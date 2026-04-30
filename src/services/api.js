@@ -48,6 +48,7 @@ export const authApi = {
   login: (credentials) => api.post('/auth/card-user/login', credentials),
   adminLogin: (credentials) => api.post('/admin/login', credentials),
   me: () => api.get('/auth/me'),
+  getCardSlug: () => api.get('/auth/card-user/slug'),
 };
 
 export const cardsApi = {
@@ -59,11 +60,13 @@ export const cardsApi = {
   delete: (id) => api.delete(`/cards/${id}`),
   getWalletPass: (id) => api.get(`/cards/wallet/create-pass/${id}`),
   getPublicCard: (tenantSlug, cardSlug) => api.get(`/public/card/${tenantSlug}/${cardSlug}`),
-  getPublicWalletPass: (tenantSlug, cardSlug) => api.post(`/public/wallet/${tenantSlug}/${cardSlug}`),
+  getPublicWalletPass: (tenantSlug, cardSlug) => api.post(`/public/card/wallet/${tenantSlug}/${cardSlug}`),
+  getMeetings: () => api.get('/cards/calendar/meetings'),
 };
 
 export const leadsApi = {
   getAll: () => api.get('/cards/leads'),
   getByCard: (cardId) => api.get(`/cards/${cardId}/leads`),
+  create: (data) => api.post('/public/card/lead', data),
 };
 
