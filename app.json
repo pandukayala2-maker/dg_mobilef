@@ -16,7 +16,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.digcard.dgmobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Allow DigCard to use your microphone to record voice notes."
+        "NSMicrophoneUsageDescription": "Allow DigCard to use your microphone to record voice notes.",
+        "NSFaceIDUsageDescription": "Allow ANSOFTT DC to use Face ID to verify your identity when opening the app.",
+        "NSCalendarsUsageDescription": "Allow DigCard to access your calendar to sync meeting reminders."
       }
     },
     "android": {
@@ -27,7 +29,13 @@
       "package": "com.ansoftt.dc",
       "permissions": [
         "RECORD_AUDIO",
-        "CAMERA"
+        "CAMERA",
+        "READ_CALENDAR",
+        "WRITE_CALENDAR",
+        "RECEIVE_BOOT_COMPLETED",
+        "SCHEDULE_EXACT_ALARM",
+        "USE_EXACT_ALARM",
+        "VIBRATE"
       ]
     },
     "web": {
@@ -54,6 +62,23 @@
         "expo-av",
         {
           "microphonePermission": "Allow DigCard to access your microphone to record notes."
+        }
+      ],
+      [
+        "expo-local-authentication"
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow ANSOFTT DC to access your calendar to sync meeting reminders."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/appicon.png",
+          "color": "#1b4654",
+          "defaultChannel": "calendar-reminders"
         }
       ]
     ],

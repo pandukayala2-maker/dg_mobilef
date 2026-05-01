@@ -40,10 +40,8 @@ const resolveUrl = (val) => {
   if (!val) return null;
   if (val.startsWith('data:')) return val;
   const base = API_BASE_URL.replace(/\/api$/, '');
-  if (val.includes('localhost') || val.includes('127.0.0.1')) {
-    const match = val.match(/\/uploads\/.+/);
-    return match ? `${base}${match[0]}` : null;
-  }
+  const uploadPath = val.match(/\/uploads\/.+/);
+  if (uploadPath) return `${base}${uploadPath[0]}`;
   if (val.startsWith('http')) return val;
   return `${base}${val}`;
 };
@@ -395,7 +393,7 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
 
 /* ═══════════════════════════════ Main Screen ═══════════════════════════════ */
 export default function MyCardScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const { isDark: isAppDark } = useAppContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -440,6 +438,26 @@ export default function MyCardScreen() {
   const fetchCard = useCallback(async () => {
     setLoading(true);
     try {
+      // If user profile is not ready yet, try card-user slug endpoint first.
+      if (!user?.role && token) {
+        try {
+          const { data } = await authApi.getCardSlug();
+          const ts = data?.tenant_slug || '';
+          const cs = data?.card_slug || parseDigCardPath(data?.card_url)?.cardSlug || '';
+          if (ts && cs) {
+            setTenantSlug(ts);
+            setCardSlug(cs);
+            setCardId(data?.card_id || null);
+            setDisplayName(data?.name || 'My Card');
+            if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
+            setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}`);
+            return;
+          }
+        } catch (err) {
+          console.warn('[fetchCard delayed-user slug]', err?.response?.status, err?.message);
+        }
+      }
+
       if (user?.role === 'card_user') {
         // Use slugs stored at login time — no API call needed
         const tSlug = user?.tenant_slug || '';
@@ -503,7 +521,7 @@ export default function MyCardScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, token]);
 
   useEffect(() => { fetchCard(); }, [fetchCard]);
 
@@ -535,11 +553,11 @@ export default function MyCardScreen() {
                   `You have an upcoming meeting: "${upcomingMeeting.title}" tomorrow.`,
                   [
                     { text: 'Later', style: 'cancel' },
-                    { text: 'View Calendar', onPress: () => router.push('/calendar') }
+                    { text: 'View Calendar', onPress: () => router.push('/(tabs)/calendar') }
                   ]
                 );
               } else {
-                router.push('/calendar');
+                router.push('/(tabs)/calendar');
               }
             }}
           >

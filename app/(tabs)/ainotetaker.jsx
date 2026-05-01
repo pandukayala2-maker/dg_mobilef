@@ -561,15 +561,19 @@ export default function AiNotetakerScreen() {
         });
         if (res.ok) {
           const data = await res.json();
-          // Normalize backend data to match local AI structure
+          // Normalize backend data: map snake_case timestamps to camelCase for UI
           const normalized = data.map(n => ({
             ...n,
+            createdAt: n.createdAt || n.created_at,
             ai: n.summary ? { summary: n.summary, nextSteps: n.next_steps || [] } : null
           }));
           setNotes(normalized);
           // Sync to cache
           await AsyncStorage.setItem(notesKey, JSON.stringify(normalized));
           return;
+        } else {
+          const errText = await res.text().catch(() => '');
+          console.warn('[getNotes] Backend error', res.status, errText);
         }
       } catch (err) {
         console.log('Failed to fetch from backend, using cache', err.message);
@@ -621,13 +625,19 @@ export default function AiNotetakerScreen() {
           const savedNote = await res.json();
           const normalized = {
             ...savedNote,
+            createdAt: savedNote.createdAt || savedNote.created_at || new Date().toISOString(),
             ai: savedNote.summary ? { summary: savedNote.summary, nextSteps: savedNote.next_steps || [] } : null
           };
           setNotes(prev => [normalized, ...prev]);
           return;
+        } else {
+          const errBody = await res.text().catch(() => '');
+          console.warn('[createNote] Backend error', res.status, errBody);
+          Alert.alert('Save failed', `Note saved locally only. Server error ${res.status}.`);
         }
       } catch (err) {
         console.log('Failed to save to backend', err.message);
+        Alert.alert('Save failed', 'Note saved locally. Check your connection.');
       }
 
       // Local Fallback
@@ -672,13 +682,19 @@ export default function AiNotetakerScreen() {
           const savedNote = await res.json();
           const normalized = {
             ...savedNote,
+            createdAt: savedNote.createdAt || savedNote.created_at || new Date().toISOString(),
             ai: savedNote.summary ? { summary: savedNote.summary, nextSteps: savedNote.next_steps || [] } : null,
           };
           saveNotes([normalized, ...notes]);
           return;
+        } else {
+          const errBody = await res.text().catch(() => '');
+          console.warn('[createNote manual] Backend error', res.status, errBody);
+          Alert.alert('Save failed', `Note saved locally only. Server error ${res.status}.`);
         }
       } catch (err) {
         console.log('Manual note save failed', err.message);
+        Alert.alert('Save failed', 'Note saved locally. Check your connection.');
       }
 
       // fallback
@@ -749,11 +765,12 @@ export default function AiNotetakerScreen() {
   const textClr = isDark ? '#f8fafc' : '#111';
 
   return (
-    <View style={[styles.safe, { backgroundColor: bg }]}>
+    <SafeAreaView edges={['top']} style={styles.safeTop}>
+      <View style={[styles.safe, { backgroundColor: bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={BRAND} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) + 6, flexDirection: isAR ? 'row-reverse' : 'row' }]}> 
+      <View style={[styles.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}> 
         <View style={[styles.headerLeft, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
           <Ionicons name="mic" size={20} color="#fff" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
           <Text style={styles.headerTitle}>{isAR ? 'ملاحظات الذكاء الاصطناعي' : 'AI Notetaker'}</Text>
@@ -787,11 +804,11 @@ export default function AiNotetakerScreen() {
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
-            <View style={styles.emptyIcon}>
+            <View style={[styles.emptyIcon, { backgroundColor: isDark ? '#1e3a47' : '#EDF5F3' }]}>
               <Ionicons name="mic-outline" size={48} color={BRAND} />
             </View>
-            <Text style={styles.emptyText}>No notes yet</Text>
-            <Text style={styles.emptySub}>
+            <Text style={[styles.emptyText, { color: isDark ? '#64748b' : '#999' }]}>No notes yet</Text>
+            <Text style={[styles.emptySub, { color: isDark ? '#475569' : '#BBB' }]}>
               Tap the button below to start recording.{'\n'}
               Your speech is transcribed when recording ends.
             </Text>
@@ -843,13 +860,22 @@ export default function AiNotetakerScreen() {
             </View>
           </TouchableOpacity>
         )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: isDark ? '#1e293b' : 'transparent' }]} />}
       />
 
       {/* Footer */}
-      <View style={[styles.footer, { paddingBottom: Math.max(20, insets.bottom + 10), flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-        <TouchableOpacity style={styles.textNoteBtn} onPress={() => setTyping(true)} activeOpacity={0.7}>
-          <Ionicons name="create-outline" size={22} color={BRAND} />
+      <View style={[styles.footer, {
+        paddingBottom: Math.max(20, insets.bottom + 10),
+        flexDirection: isAR ? 'row-reverse' : 'row',
+        backgroundColor: isDark ? '#0f172a' : '#fff',
+        borderTopColor: isDark ? '#1e293b' : '#F1F5F9',
+      }]}>
+        <TouchableOpacity
+          style={[styles.textNoteBtn, { backgroundColor: isDark ? '#1e293b' : '#F1F5F9' }]}
+          onPress={() => setTyping(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="create-outline" size={22} color={isDark ? '#94a3b8' : BRAND} />
         </TouchableOpacity>
         <TouchableOpacity style={[styles.takeNoteBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={() => setRecording(true)} activeOpacity={0.85}>
           <Ionicons name="mic" size={22} color="#fff" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
@@ -875,18 +901,21 @@ export default function AiNotetakerScreen() {
       {selectedNote && (
         <NoteDetailModal note={selectedNote} onClose={() => setSelectedNote(null)} />
       )}
-    </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
 /* ═══════════════════════════ Main Styles ═══════════════════════════ */
 const styles = StyleSheet.create({
+  safeTop: { flex: 1, backgroundColor: BRAND },
   safe: { flex: 1, backgroundColor: '#F5F6F8' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 18,
+    paddingTop: 10,
     paddingBottom: 16,
     backgroundColor: BRAND,
   },
@@ -1176,6 +1205,7 @@ const rc = StyleSheet.create({
 function ManualNoteModal({ visible, onSave, onClose }) {
   const [text, setText] = useState('');
   const inputRef = useRef(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (visible) {
@@ -1191,8 +1221,8 @@ function ManualNoteModal({ visible, onSave, onClose }) {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="formSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#fff' }}>
-        <View style={mn.header}>
+      <SafeAreaView style={mn.safe}>
+        <View style={[mn.header, { paddingTop: Math.max(8, insets.top + 2) }]}>
           <TouchableOpacity onPress={onClose} style={mn.closeBtn}>
             <Text style={mn.closeText}>Cancel</Text>
           </TouchableOpacity>
@@ -1212,12 +1242,13 @@ function ManualNoteModal({ visible, onSave, onClose }) {
             onChangeText={setText}
           />
         </ScrollView>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
 
 const mn = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#fff' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

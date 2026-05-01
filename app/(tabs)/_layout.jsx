@@ -1,3 +1,4 @@
+
 import { Tabs } from 'expo-router';
 import { View, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,21 +20,32 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      initialRouteName="mycard"
       screenOptions={{
         headerShown: false,
+        tabBarShowLabel: true,
         tabBarStyle: [
-          styles.tabBar, 
-          { 
+          styles.tabBar,
+          {
             backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
-            borderTopColor: isDark ? '#1E293B' : '#F1F5F9'
-          }
+            borderTopColor: isDark ? '#1E293B' : '#F1F5F9',
+          },
         ],
         tabBarActiveTintColor: isDark ? YELLOW : CORAL,
         tabBarInactiveTintColor: isDark ? '#64748B' : '#94A3B8',
         tabBarLabelStyle: styles.tabLabel,
+        tabBarItemStyle: styles.tabItem,
         tabBarHideOnKeyboard: true,
       }}
     >
+      <Tabs.Screen
+        name="index"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="scan"
+        options={{ href: null }}
+      />
       <Tabs.Screen
         name="mycard"
         options={{
@@ -44,11 +56,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="calendar"
+        name="contacts"
         options={{
-          title: 'Calendar',
+          title: 'Contacts',
           tabBarIcon: ({ color, size, focused }) => (
-            <TabIcon name={focused ? 'calendar' : 'calendar-outline'} color={color} size={size} focused={focused} />
+            <TabIcon name={focused ? 'people' : 'people-outline'} color={color} size={size} focused={focused} />
           ),
         }}
       />
@@ -62,26 +74,14 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="scan"
+        name="calendar"
         options={{
-          title: 'Scanner',
+          title: 'Calendar',
           tabBarIcon: ({ color, size, focused }) => (
-            <TabIcon name={focused ? 'scan' : 'scan-outline'} color={color} size={size} focused={focused} />
+            <TabIcon name={focused ? 'calendar' : 'calendar-outline'} color={color} size={size} focused={focused} />
           ),
         }}
       />
-      <Tabs.Screen
-        name="contacts"
-        options={{
-          title: 'Contacts',
-          tabBarIcon: ({ color, size, focused }) => (
-            <TabIcon name={focused ? 'people' : 'people-outline'} color={color} size={size} focused={focused} />
-          ),
-        }}
-      />
-      {/* Hidden legacy screens */}
-      <Tabs.Screen name="dashboard" options={{ href: null }} />
-      <Tabs.Screen name="settings" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -104,6 +104,9 @@ const styles = StyleSheet.create({
     fontSize: 12, 
     fontWeight: '700',
     marginTop: 6,
+  },
+  tabItem: {
+    paddingVertical: 4,
   },
   iconWrap: { 
     alignItems: 'center', 

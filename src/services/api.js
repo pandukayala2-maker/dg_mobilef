@@ -1,20 +1,43 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 // Web-safe token storage (SecureStore doesn't support web)
 export const tokenStore = {
   async get(key) {
     if (Platform.OS === 'web') return localStorage.getItem(key);
-    return SecureStore.getItemAsync(key);
+    try {
+      const secureValue = await SecureStore.getItemAsync(key);
+      if (secureValue) return secureValue;
+    } catch {}
+
+    // Fallback for devices/builds where SecureStore can fail or return null.
+    try {
+      return await AsyncStorage.getItem(key);
+    } catch {
+      return null;
+    }
   },
   async set(key, value) {
     if (Platform.OS === 'web') { localStorage.setItem(key, value); return; }
-    return SecureStore.setItemAsync(key, value);
+    try {
+      await SecureStore.setItemAsync(key, value);
+    } catch {}
+
+    // Keep a mirrored copy to survive SecureStore edge cases.
+    try {
+      await AsyncStorage.setItem(key, value);
+    } catch {}
   },
   async remove(key) {
     if (Platform.OS === 'web') { localStorage.removeItem(key); return; }
-    return SecureStore.deleteItemAsync(key);
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch {}
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch {}
   },
 };
 
@@ -47,7 +70,7 @@ export default api;
 export const authApi = {
   login: (credentials) => api.post('/auth/card-user/login', credentials),
   adminLogin: (credentials) => api.post('/admin/login', credentials),
-  me: () => api.get('/auth/me'),
+  me: (config) => api.get('/auth/me', config),
   getCardSlug: () => api.get('/auth/card-user/slug'),
 };
 
