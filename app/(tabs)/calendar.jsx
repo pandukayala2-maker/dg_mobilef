@@ -54,14 +54,36 @@ export default function CalendarScreen() {
       });
     }
 
-    Notifications.getPermissionsAsync().then(({ status }) => {
-      setNotifGranted(status === 'granted');
+    Notifications.getPermissionsAsync().then(async ({ status }) => {
+      if (status === 'granted') {
+        setNotifGranted(true);
+      } else if (status === 'undetermined') {
+        // Request automatically on first open
+        const { status: newStatus } = await Notifications.requestPermissionsAsync();
+        setNotifGranted(newStatus === 'granted');
+      } else {
+        setNotifGranted(false);
+      }
     });
 
-    // Do not request calendar permission on page open.
-    // Request it only when user taps "Sync to Device Calendar".
     setCalendarPermission(false);
   }, []);
+
+  const requestNotifPermission = async () => {
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status === 'granted') {
+      setNotifGranted(true);
+    } else {
+      Alert.alert(
+        'Permission Denied',
+        'To enable notifications, go to Settings → Notifications → Allow.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+    }
+  };
 
   // ─── 2. Schedule notifications whenever meetings list changes ──────────────
   const scheduleReminders = useCallback(async (list) => {
@@ -290,6 +312,18 @@ export default function CalendarScreen() {
             )}
           </TouchableOpacity>
 
+          {!notifGranted && Platform.OS !== 'web' && (
+            <TouchableOpacity
+              style={[styles.syncAltBtn, { marginBottom: 0, backgroundColor: '#FEF3C7', marginTop: 10 }]}
+              onPress={requestNotifPermission}
+            >
+              <Ionicons name="notifications-outline" size={17} color="#D97706" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
+              <Text style={[styles.syncAltBtnText, { color: '#D97706' }]}>
+                {isAR ? 'تفعيل الإشعارات' : 'Enable Notifications'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={[styles.syncAltBtn, calendarSyncing && { opacity: 0.7 }]}
             onPress={syncToDeviceCalendar}
@@ -340,14 +374,15 @@ export default function CalendarScreen() {
               )}
 
               {!notifGranted && Platform.OS !== 'web' && (
-                <View style={styles.statusRow}>
-                  <Ionicons name="notifications-off-outline" size={15} color="#94A3B8" />
-                  <Text style={[styles.statusText, { color: '#94A3B8' }]}>
+                <TouchableOpacity style={styles.statusRow} onPress={requestNotifPermission} activeOpacity={0.7}>
+                  <Ionicons name="notifications-off-outline" size={15} color="#F59E0B" />
+                  <Text style={[styles.statusText, { color: '#F59E0B' }]}>
                     {isAR
-                      ? 'فعّل الإشعارات للحصول على تذكيرات تلقائية'
-                      : 'Enable notifications to receive automatic reminders'}
+                      ? 'اضغط هنا لتفعيل الإشعارات'
+                      : 'Tap here to enable notifications'}
                   </Text>
-                </View>
+                  <Ionicons name="chevron-forward" size={13} color="#F59E0B" />
+                </TouchableOpacity>
               )}
             </View>
           )}

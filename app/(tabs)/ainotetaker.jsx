@@ -14,25 +14,18 @@ import {
   StatusBar,
   Animated,
   Keyboard,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
 import { API_BASE_URL, tokenStore } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 
 const BRAND = '#1b4654';
 const NOTES_KEY_PREFIX = 'digcard_ai_notes';
-
-function getExpoAudio() {
-  try {
-    const mod = require('expo-av');
-    return mod?.Audio || null;
-  } catch {
-    return null;
-  }
-}
 
 /* ─── Helpers ─── */
 function formatRelative(dateStr) {
@@ -245,51 +238,42 @@ async function transcribeAudioUri(uri, authToken) {
   if (Platform.OS === 'web') {
     const fileResponse = await fetch(uri);
     const blob = await fileResponse.blob();
-    const safeType = blob.type || mimeType;
     form.append('file', blob, `voice-note.${ext}`);
-    if (!blob.type && safeType) {
-      form.append('contentTypeHint', safeType);
-    }
   } else {
-    form.append('file', {
-      uri,
-      name: `voice-note.${ext}`,
-      type: mimeType,
-    });
+    form.append('file', { uri, name: `voice-note.${ext}`, type: mimeType });
   }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
 
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       body: form,
+      signal: controller.signal,
       headers: {
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
 
-    if (res.status === 401) {
-      throw new Error('Unauthorized. Please sign in again.');
-    }
+    clearTimeout(timeout);
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
-      throw new Error(`Transcription failed with status ${res.status}${detail ? `: ${detail}` : ''}`);
+      throw new Error(`Transcription failed ${res.status}${detail ? `: ${detail}` : ''}`);
     }
 
     const data = await res.json();
     const text = (
-      data?.text ||
-      data?.transcript ||
-      data?.result?.text ||
-      data?.data?.text ||
-      ''
+      data?.text || data?.transcript || data?.result?.text || data?.data?.text || ''
     ).trim();
 
     console.log('Transcription completed');
     return text;
   } catch (error) {
-    console.log('Transcription error', error?.message || error);
+    clearTimeout(timeout);
+    console.log('Transcription error:', error?.message || error);
     return '';
   }
 }
@@ -297,12 +281,11 @@ async function transcribeAudioUri(uri, authToken) {
 function RecordingModal({ onSave, onClose, authToken }) {
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
-  const [status, setStatus] = useState('starting'); // 'starting' | 'recording' | 'paused' | 'permission-denied' | 'processing'
+  const [status, setStatus] = useState('starting');
   const [ending, setEnding] = useState(false);
 
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const timerRef = useRef(null);
-  const recordingRef = useRef(null);
-  const audioRef = useRef(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const pulseLoopRef = useRef(null);
 
@@ -324,39 +307,24 @@ function RecordingModal({ onSave, onClose, authToken }) {
 
   const startRecording = async () => {
     try {
-      const Audio = audioRef.current || getExpoAudio();
-      audioRef.current = Audio;
-
-      if (!Audio) {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
         setStatus('permission-denied');
         stopPulse();
         Alert.alert(
-          'Audio module unavailable',
-          'The native audio module is not available in this runtime. Update Expo Go or use a development build, then restart with cache clear.'
+          'Microphone Permission Required',
+          'Please allow microphone access in your iPhone Settings to record voice notes.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
         );
         return;
       }
 
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status !== 'granted') {
-        setStatus('permission-denied');
-        stopPulse();
-        Alert.alert('Microphone permission required', 'Please enable microphone access to record voice notes.');
-        return;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-      });
-
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await recording.startAsync();
-      recordingRef.current = recording;
-
-      console.log('Recording started');
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
       setStatus('recording');
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     } catch (error) {
@@ -373,27 +341,22 @@ function RecordingModal({ onSave, onClose, authToken }) {
     return () => {
       clearInterval(timerRef.current);
       stopPulse();
-      if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch(() => {});
-      }
-      if (audioRef.current?.setAudioModeAsync) {
-        audioRef.current.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
-      }
+      recorder.stop().catch(() => {});
     };
   }, []);
 
-  const togglePause = async () => {
-    if (ending || status === 'permission-denied' || !recordingRef.current) return;
+  const togglePause = () => {
+    if (ending || status === 'permission-denied') return;
 
     try {
       if (paused) {
-        await recordingRef.current.startAsync();
+        recorder.record();
         setPaused(false);
         setStatus('recording');
         startPulse();
         timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
       } else {
-        await recordingRef.current.pauseAsync();
+        recorder.pause();
         setPaused(true);
         setStatus('paused');
         clearInterval(timerRef.current);
@@ -411,26 +374,19 @@ function RecordingModal({ onSave, onClose, authToken }) {
     clearInterval(timerRef.current);
     stopPulse();
 
-    let transcript = '';
-    if (recordingRef.current) {
-      try {
-        await recordingRef.current.stopAndUnloadAsync();
-      } catch {}
-
-      const uri = recordingRef.current.getURI();
-      console.log('Recording file URI:', uri);
-      transcript = await transcribeAudioUri(uri, authToken);
-
-      if (!transcript) {
-        console.log('No transcript generated. Verify EXPO_PUBLIC_TRANSCRIBE_URL or backend transcription endpoint.');
-      }
+    let uri = null;
+    try {
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+      uri = recorder.uri;
+      console.log('Recording URI:', uri);
+    } catch (error) {
+      console.log('Stop recording failed:', error?.message || error);
     }
 
-    if (audioRef.current?.setAudioModeAsync) {
-      await audioRef.current.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
-    }
-    await new Promise((r) => setTimeout(r, 350));
-    await onSave({ transcript, duration: elapsed });
+    // Close modal immediately then transcribe — never hang on "Processing"
+    const savedElapsed = elapsed;
+    await onSave({ transcript: '', duration: savedElapsed, uri });
   };
 
   const isRecording = status === 'recording';
@@ -552,8 +508,10 @@ export default function AiNotetakerScreen() {
     );
   };
 
+  // Track if a recording save is in progress to prevent backend fetch from overwriting it
+  const savingRef = useRef(false);
+
   useEffect(() => {
-    // 1. Load from Backend
     const fetchBackendNotes = async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/ai/notes`, {
@@ -561,31 +519,28 @@ export default function AiNotetakerScreen() {
         });
         if (res.ok) {
           const data = await res.json();
-          // Normalize backend data: map snake_case timestamps to camelCase for UI
           const normalized = data.map(n => ({
             ...n,
             createdAt: n.createdAt || n.created_at,
-            ai: n.summary ? { summary: n.summary, nextSteps: n.next_steps || [] } : null
+            ai: n.summary ? { summary: n.summary, nextSteps: n.next_steps || [] } : null,
+            status: 'done',
           }));
-          setNotes(normalized);
-          // Sync to cache
-          await AsyncStorage.setItem(notesKey, JSON.stringify(normalized));
+          // Only overwrite notes if we're not mid-save
+          if (!savingRef.current) {
+            setNotes(normalized);
+            await AsyncStorage.setItem(notesKey, JSON.stringify(normalized));
+          }
           return;
-        } else {
-          const errText = await res.text().catch(() => '');
-          console.warn('[getNotes] Backend error', res.status, errText);
         }
       } catch (err) {
         console.log('Failed to fetch from backend, using cache', err.message);
       }
-
-      // 2. Fallback to Cache
+      // Fallback to cache
       const raw = await AsyncStorage.getItem(notesKey);
-      if (raw) {
+      if (raw && !savingRef.current) {
         try { setNotes(JSON.parse(raw)); } catch {}
       }
     };
-
     fetchBackendNotes();
   }, [notesKey, token]);
 
@@ -595,62 +550,82 @@ export default function AiNotetakerScreen() {
   }, [notesKey]);
 
   const handleSaveRecording = useCallback(
-    async ({ transcript, duration }) => {
+    async ({ duration, uri }) => {
+      savingRef.current = true;
       setRecording(false);
 
+      // Save note locally right away so user sees it instantly
+      const localId = `local_${Date.now()}`;
+      const createdAt = new Date().toISOString();
+      const immediateNote = {
+        id: localId,
+        createdAt,
+        title: 'Voice note recorded',
+        transcript: '',
+        duration,
+        status: 'processing',
+        ai: null,
+      };
+      setNotes(prev => [immediateNote, ...prev]);
+
+      // Transcribe in background (may fail — that's OK)
+      const transcript = uri ? await transcribeAudioUri(uri, token) : '';
       const ai = generateSummary(transcript);
-      const safeTranscript = transcript || 'Audio recorded. Transcription unavailable. Please verify backend URL and sign-in session.';
-      
-      const noteData = {
-        title: ai?.title || (transcript ? transcript.slice(0, 50) : 'Voice note recorded'),
-        transcript: safeTranscript,
+      const title = ai?.title || (transcript ? transcript.slice(0, 50) : 'Voice note recorded');
+
+      const finalNote = {
+        id: localId,
+        createdAt,
+        title,
+        transcript: transcript || '',
         summary: ai?.summary || '',
         next_steps: ai?.nextSteps || [],
         duration,
+        status: 'done',
+        ai,
         card_id: user?.card_id || null,
       };
 
+      // Show the finished note immediately (with or without transcript)
+      setNotes(prev => prev.map(n => n.id === localId ? finalNote : n));
+
+      // Save to backend in background
       try {
-        // Save to Backend
         const res = await fetch(`${API_BASE_URL}/ai/notes`, {
           method: 'POST',
-          headers: {
-             'Content-Type': 'application/json',
-             Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify(noteData)
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            title: finalNote.title,
+            transcript: finalNote.transcript,
+            summary: finalNote.summary,
+            next_steps: finalNote.next_steps,
+            duration,
+            card_id: finalNote.card_id,
+          }),
         });
-
         if (res.ok) {
-          const savedNote = await res.json();
-          const normalized = {
-            ...savedNote,
-            createdAt: savedNote.createdAt || savedNote.created_at || new Date().toISOString(),
-            ai: savedNote.summary ? { summary: savedNote.summary, nextSteps: savedNote.next_steps || [] } : null
+          const saved = await res.json();
+          const backendNote = {
+            ...finalNote,
+            id: saved.id || saved._id || localId,
+            createdAt: saved.createdAt || saved.created_at || createdAt,
+            ai: saved.summary ? { summary: saved.summary, nextSteps: saved.next_steps || [] } : ai,
+            status: 'done',
           };
-          setNotes(prev => [normalized, ...prev]);
-          return;
-        } else {
-          const errBody = await res.text().catch(() => '');
-          console.warn('[createNote] Backend error', res.status, errBody);
-          Alert.alert('Save failed', `Note saved locally only. Server error ${res.status}.`);
+          setNotes(prev => prev.map(n => n.id === localId ? backendNote : n));
         }
       } catch (err) {
-        console.log('Failed to save to backend', err.message);
-        Alert.alert('Save failed', 'Note saved locally. Check your connection.');
+        console.log('Backend save failed (note kept locally):', err.message);
       }
 
-      // Local Fallback
-      const localNote = {
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-        status: 'done',
-        ...noteData,
-        ai,
-      };
-      saveNotes([localNote, ...notes]);
+      // Always persist locally
+      setNotes(prev => {
+        AsyncStorage.setItem(notesKey, JSON.stringify(prev)).catch(() => {});
+        return prev;
+      });
+      savingRef.current = false;
     },
-    [notes, saveNotes, token, user]
+    [token, user, notesKey]
   );
 
   const handleSaveManualNote = useCallback(

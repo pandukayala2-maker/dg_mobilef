@@ -22,7 +22,7 @@ export default function ScanScreen() {
   const handleBarCodeScanned = ({ type, data }) => {
     setScanned(true);
     if (data && data.startsWith('http')) {
-      Linking.openURL(data).catch(() => {});
+      Linking.openURL(data).catch(() => { });
     }
   };
 
@@ -42,12 +42,12 @@ export default function ScanScreen() {
             {language === 'ar' ? 'مطلوب إذن الكاميرا' : 'Camera Access Required'}
           </Text>
           <Text style={[s.subtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-            {language === 'ar' 
-              ? 'نحتاج إلى الوصول إلى الكاميرا لمسح رموز DigCard QR.' 
+            {language === 'ar'
+              ? 'نحتاج إلى الوصول إلى الكاميرا لمسح رموز DigCard QR.'
               : 'We need camera access to scan DigCard QR codes.'}
           </Text>
           <TouchableOpacity style={s.btn} onPress={requestPermission}>
-            <Text style={s.btnText}>{language === 'ar' ? 'السماح بالكاميرا' : 'Allow Camera'}</Text>
+            <Text style={s.btnText}>Allow Camera</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

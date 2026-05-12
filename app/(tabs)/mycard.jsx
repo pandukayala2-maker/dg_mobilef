@@ -24,12 +24,14 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import * as WebBrowser from 'expo-web-browser';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import { useAuth } from '@/context/AuthContext';
-import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL } from '@/services/api';
+import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL, tokenStore } from '@/services/api';
 import { useAppContext } from '@/context/AppContext';
 
 const BRAND = '#1b4654';
@@ -84,8 +86,8 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
               {avatarUrl
                 ? <Image source={{ uri: avatarUrl }} style={sd.avatar} />
                 : <View style={[sd.avatar, sd.avatarFallback]}>
-                    <Text style={sd.avatarInitial}>{initials}</Text>
-                  </View>}
+                  <Text style={sd.avatarInitial}>{initials}</Text>
+                </View>}
               <Text style={sd.name} numberOfLines={1}>{user?.name || 'User'}</Text>
               <Text style={sd.email} numberOfLines={1}>{user?.email || ''}</Text>
             </View>
@@ -129,8 +131,8 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
                 <Switch value={isDark} onValueChange={toggleTheme} trackColor={{ false: '#CBD5E1', true: BRAND }} />
               </View>
 
-              <TouchableOpacity 
-                style={sd.menuItem} 
+              <TouchableOpacity
+                style={sd.menuItem}
                 onPress={() => Linking.openURL('mailto:anintl.ind@gmail.com?subject=DigCard Support Request')}
               >
                 <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FEF2F2' }]}>
@@ -272,7 +274,6 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
   const [subScreen, setSubScreen] = useState(null);
   const qrSvgRef = useRef(null);
   const insets = useSafeAreaInsets();
-
   const shareMsg = `Check out my digital business card: ${cardUrl}`;
 
   const copyLink = async () => {
@@ -281,7 +282,7 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
   };
 
   const sendOther = async () => {
-    try { await Share.share({ message: shareMsg, url: cardUrl }); } catch {}
+    try { await Share.share({ message: shareMsg, url: cardUrl }); } catch { }
   };
 
   const saveQRToPhotos = async () => {
@@ -305,19 +306,84 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
   };
 
   const addToWallet = async () => {
-    if ((!tenantSlug || !cardSlug) && !cardId) { Alert.alert('Unavailable', 'Card info not found.'); return; }
+    if ((!tenantSlug || !cardSlug) && !cardId) {
+      Alert.alert('Unavailable', 'Card info not found.');
+      return;
+    }
     setWalletLoading(true);
     try {
-      let walletUrl = null;
-      if (tenantSlug && cardSlug) {
-        try { const { data } = await cardsApi.getPublicWalletPass(tenantSlug, cardSlug); walletUrl = data?.walletUrl; } catch {}
+      let activeCardId = cardId;
+
+      // Resolve cardId if missing
+      if (!activeCardId && tenantSlug && cardSlug) {
+        try {
+          const { data } = await cardsApi.getPublicCard(tenantSlug, cardSlug);
+          activeCardId = data?.card?.id || data?.id || data?.data?.id;
+        } catch { }
       }
-      if (!walletUrl && cardId) { const { data } = await cardsApi.getWalletPass(cardId); walletUrl = data?.walletUrl; }
-      walletUrl ? await Linking.openURL(walletUrl) : Alert.alert('Error', 'Could not generate wallet pass.');
+
+      if (Platform.OS === 'ios') {
+        // PRIMARY: Open via in-app browser (SFSafariViewController).
+        // When iOS receives Content-Type: application/vnd.apple.pkpass inside
+        // SFSafariViewController it shows the native "Add to Apple Wallet" sheet
+        // directly — NO share sheet, NO leaving the app.
+        if (tenantSlug && cardSlug) {
+          const publicPassUrl = `${API_BASE_URL}/public/card/apple-pass/${tenantSlug}/${cardSlug}`;
+          await WebBrowser.openBrowserAsync(publicPassUrl, {
+            dismissButtonStyle: 'close',
+            enableBarCollapsing: false,
+          });
+          return;
+        }
+
+        // FALLBACK: download with auth token then share (shows share sheet)
+        const token = await tokenStore.get('auth_token');
+        const fileName = `dg-card-${(cardSlug || activeCardId || 'pass').replace(/[^a-z0-9-]/gi, '_')}.pkpass`;
+        const localUri = `${FileSystem.documentDirectory}${fileName}`;
+        const passUrl = activeCardId
+          ? `${API_BASE_URL}/cards/wallet/apple-pass/${activeCardId}`
+          : null;
+
+        if (!passUrl) {
+          Alert.alert('Error', 'Card identifier not found for Apple Wallet.');
+          return;
+        }
+
+        const result = await FileSystem.downloadAsync(passUrl, localUri, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+
+        if (result.status !== 200) {
+          Alert.alert('Error', `Could not generate pass. (Status: ${result.status})`);
+          return;
+        }
+
+        await Sharing.shareAsync(localUri, {
+          mimeType: 'application/vnd.apple.pkpass',
+          UTI: 'com.apple.pkpass',
+        });
+
+      } else {
+        // Android — open Google Wallet URL
+        let walletUrl = null;
+        if (tenantSlug && cardSlug) {
+          try { const { data } = await cardsApi.getPublicWalletPass(tenantSlug, cardSlug); walletUrl = data?.walletUrl; } catch { }
+        }
+        if (!walletUrl && activeCardId) {
+          try { const { data } = await cardsApi.getWalletPass(activeCardId); walletUrl = data?.walletUrl; } catch { }
+        }
+        walletUrl
+          ? await Linking.openURL(walletUrl)
+          : Alert.alert('Error', 'Could not generate wallet pass.');
+      }
     } catch (err) {
       Alert.alert('Error', err?.response?.data?.message || err?.message || 'Failed.');
-    } finally { setWalletLoading(false); }
+    } finally {
+      setWalletLoading(false);
+    }
   };
+
+
 
   return (
     <Modal visible={visible} animationType="slide" statusBarTranslucent>
@@ -325,7 +391,6 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
         {subScreen === 'email' && <EmailScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} displayName={displayName} />}
         {subScreen === 'text' && <TextScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} />}
         {subScreen === 'whatsapp' && <WhatsAppScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} />}
-
         {!subScreen && (
           <>
             <StatusBar barStyle="light-content" backgroundColor={BRAND} />
@@ -336,7 +401,6 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
               <Text style={sh.headerTitle}>Send Your Card</Text>
               <View style={sh.headerBtn} />
             </View>
-
             <ScrollView contentContainerStyle={sh.scroll} showsVerticalScrollIndicator={false}>
               {cardUrl ? (
                 <View style={sh.qrWrap}>
@@ -346,34 +410,29 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
                   <Text style={sh.qrText}>Point your camera at the QR{'\n'}code to receive the card</Text>
                 </View>
               ) : null}
-
               <View style={sh.group}>
                 <ShareRow icon="copy-outline" label="Copy link" onPress={copyLink} isLast />
               </View>
-
               <View style={sh.group}>
                 <ShareRow icon="chatbubble-outline" label="Text your card" onPress={() => setSubScreen('text')} />
                 <ShareRow icon="mail-outline" label="Email your card" onPress={() => setSubScreen('email')} />
                 <ShareRow label="Send via WhatsApp" onPress={() => setSubScreen('whatsapp')}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#25D366' }]}><Ionicons name="logo-whatsapp" size={16} color="#fff" /></View>} />
-                <ShareRow label="Send via LinkedIn" onPress={() => Linking.openURL(`https://www.linkedin.com/messaging/compose/?body=${encodeURIComponent(`${shareMsg}`)}`)}
+                <ShareRow label="Send via LinkedIn" onPress={() => Linking.openURL(`https://www.linkedin.com/messaging/compose/?body=${encodeURIComponent(shareMsg)}`)}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
                 <ShareRow icon="ellipsis-horizontal" label="Send another way" onPress={sendOther} isLast />
               </View>
-
               <View style={sh.group}>
                 <ShareRow label="Post to LinkedIn" onPress={() => Linking.openURL(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(cardUrl)}`)}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
                 <ShareRow label="Post to Facebook" onPress={() => Linking.openURL(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(cardUrl)}`)} isLast
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#1877F2' }]}><Ionicons name="logo-facebook" size={17} color="#fff" /></View>} />
               </View>
-
               <View style={sh.group}>
                 <ShareRow label="Save QR to photos" onPress={saveQRToPhotos}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: 'transparent' }]}><Text style={{ fontSize: 22 }}>🖼️</Text></View>} />
-                <ShareRow icon="paper-plane-outline" label="Send QR code" onPress={() => Share.share({ message: `${shareMsg}\n\nScan the QR or open the link.`, url: cardUrl }).catch(() => {})} isLast />
+                <ShareRow icon="paper-plane-outline" label="Send QR code" onPress={() => Share.share({ message: `${shareMsg}\n\nScan the QR or open the link.`, url: cardUrl }).catch(() => { })} isLast />
               </View>
-
               <View style={sh.group}>
                 <TouchableOpacity style={sh.row} onPress={addToWallet} activeOpacity={0.7} disabled={walletLoading}>
                   <View style={sh.rowIconWrap}>
@@ -397,6 +456,7 @@ export default function MyCardScreen() {
   const { isDark: isAppDark, language: appLang } = useAppContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const webviewRef = useRef(null);
 
   const [cardUrl, setCardUrl] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -405,23 +465,67 @@ export default function MyCardScreen() {
   const [cardSlug, setCardSlug] = useState('');
   const [tenantSlug, setTenantSlug] = useState('');
   const [loading, setLoading] = useState(true);
-  const [webLoading, setWebLoading] = useState(true);
   const [shareOpen, setShareOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [upcomingMeeting, setUpcomingMeeting] = useState(null);
+  const [notifGranted, setNotifGranted] = useState(false);
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    (async () => {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status === 'granted') {
+        setNotifGranted(true);
+      } else if (status === 'undetermined') {
+        const { status: newStatus } = await Notifications.requestPermissionsAsync();
+        setNotifGranted(newStatus === 'granted');
+      }
+    })();
+  }, []);
+
+  const handleBellPress = async () => {
+    if (!notifGranted && Platform.OS !== 'web') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status === 'granted') {
+        setNotifGranted(true);
+        router.push('/(tabs)/calendar');
+        return;
+      }
+      Alert.alert(
+        'Notifications Disabled',
+        'Enable notifications in Settings to get meeting reminders.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+    if (upcomingMeeting) {
+      Alert.alert(
+        'Meeting Reminder',
+        `You have an upcoming meeting: "${upcomingMeeting.title}" tomorrow.`,
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'View Calendar', onPress: () => router.push('/(tabs)/calendar') },
+        ]
+      );
+    } else {
+      router.push('/(tabs)/calendar');
+    }
+  };
 
   const fetchUpcoming = useCallback(async () => {
     try {
       const { data } = await cardsApi.getMeetings();
       const list = data.meetings || [];
-      // Check if any meeting is "tomorrow"
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowDateStr = tomorrow.toISOString().split('T')[0];
-      
       const found = list.find(m => m.time.startsWith(tomorrowDateStr));
       setUpcomingMeeting(found || null);
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => { fetchUpcoming(); }, [fetchUpcoming]);
@@ -475,11 +579,8 @@ export default function MyCardScreen() {
           // Non-blocking: enrich avatar/name from slug endpoint
           authApi.getCardSlug().then(({ data }) => {
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
-            if (data?.name) {
-              const dName = (appLang === 'ar' && data?.name_ar) ? data.name_ar : data.name;
-              setDisplayName(dName);
-            }
-          }).catch(() => {});
+            if (data?.name) setDisplayName(data.name);
+          }).catch(() => { });
           return;
         }
 
@@ -533,7 +634,6 @@ export default function MyCardScreen() {
   useEffect(() => { fetchCard(); }, [fetchCard, appLang]);
 
   const pageBg = isAppDark ? '#0F172A' : '#F3F4F6';
-  const footerBg = isAppDark ? 'rgba(15,23,42,0.97)' : 'rgba(243,244,246,0.97)';
 
   return (
     <View style={{ flex: 1, backgroundColor: BRAND }}>
@@ -545,30 +645,21 @@ export default function MyCardScreen() {
           {avatarUrl
             ? <Image source={{ uri: avatarUrl }} style={s.menuAvatar} />
             : <View style={s.menuAvatarFallback}>
-                <Text style={s.menuAvatarText}>{(user?.name || 'U').charAt(0).toUpperCase()}</Text>
-              </View>}
+              <Text style={s.menuAvatarText}>{(user?.name || 'U').charAt(0).toUpperCase()}</Text>
+            </View>}
         </TouchableOpacity>
         <Text style={s.topTitle} numberOfLines={1}>{displayName || 'My Card'}</Text>
-        
+
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity 
-            style={[s.logoutBtn, { marginRight: 12 }]} 
-            onPress={() => {
-              if (upcomingMeeting) {
-                Alert.alert(
-                  'Meeting Reminder',
-                  `You have an upcoming meeting: "${upcomingMeeting.title}" tomorrow.`,
-                  [
-                    { text: 'Later', style: 'cancel' },
-                    { text: 'View Calendar', onPress: () => router.push('/(tabs)/calendar') }
-                  ]
-                );
-              } else {
-                router.push('/(tabs)/calendar');
-              }
-            }}
+          <TouchableOpacity
+            style={[s.logoutBtn, { marginRight: 12 }]}
+            onPress={handleBellPress}
           >
-            <Ionicons name="notifications-outline" size={22} color="#fff" />
+            <Ionicons
+              name={notifGranted ? 'notifications' : 'notifications-outline'}
+              size={22}
+              color="#fff"
+            />
             {upcomingMeeting && <View style={s.badge} />}
           </TouchableOpacity>
 
@@ -584,57 +675,51 @@ export default function MyCardScreen() {
           <ActivityIndicator style={{ flex: 1 }} color={BRAND} size="large" />
         ) : cardUrl ? (
           <>
-            {/* WebView renders EXACTLY the same card as the public web page */}
             <WebView
-              key={cardUrl}
               source={{ uri: cardUrl }}
               style={{ flex: 1, backgroundColor: pageBg }}
               startInLoadingState
-              onLoadStart={() => setWebLoading(true)}
-              onLoadEnd={() => setWebLoading(false)}
               renderLoading={() => (
-                <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: pageBg }]}>
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: pageBg }}>
                   <ActivityIndicator color={BRAND} size="large" />
                 </View>
               )}
-              // Inject CSS to remove the web page's own share/action buttons
-              // so the mobile native Share button handles sharing
-              injectedJavaScriptBeforeContentLoaded={`
-                (function() {
-                  var style = document.createElement('style');
-                  style.textContent = '.space-y-2\\.5 { display: none !important; } body { -webkit-user-select: none; }';
-                  document.head.appendChild(style);
-                })();
-                true;
-              `}
-              injectedJavaScript={`
-                (function() {
-                  // Hide the Share Details + Visit Website buttons after React renders
-                  function hideButtons() {
-                    var els = document.querySelectorAll('button, a[href]');
-                    els.forEach(function(el) {
-                      var t = el.textContent || '';
-                      if (t.includes('Share Details') || t.includes('Visit Website')) {
-                        el.style.display = 'none';
-                      }
-                    });
-                  }
-                  setTimeout(hideButtons, 800);
-                  setTimeout(hideButtons, 2000);
-                })();
-                true;
-              `}
+              onLoadEnd={() => {
+                const script = `
+                  (function() {
+                    var KEYWORDS = ['share details', 'share your details', 'save contact', 'download card', 'submit my details'];
+                    function hideShareUI() {
+                      document.querySelectorAll('button, [role="button"], a').forEach(function(el) {
+                        var t = (el.innerText || el.textContent || '').toLowerCase().trim();
+                        if (KEYWORDS.some(function(k) { return t.indexOf(k) !== -1; })) {
+                          el.style.setProperty('display', 'none', 'important');
+                          if (el.parentElement) el.parentElement.style.setProperty('display', 'none', 'important');
+                        }
+                      });
+                      document.querySelectorAll('div, section').forEach(function(el) {
+                        var t = (el.innerText || el.textContent || '').toLowerCase();
+                        if (t.indexOf('share your details') !== -1 || (t.indexOf('your name') !== -1 && t.indexOf('your email') !== -1 && t.indexOf('your phone') !== -1)) {
+                          el.style.setProperty('display', 'none', 'important');
+                        }
+                      });
+                    }
+                    hideShareUI();
+                    setInterval(hideShareUI, 300);
+                    new MutationObserver(hideShareUI).observe(document.documentElement, { childList: true, subtree: true });
+                  })();
+                  true;
+                `;
+                webviewRef.current?.injectJavaScript(script);
+              }}
               allowsFullscreenVideo={false}
               javaScriptEnabled
               domStorageEnabled
               setSupportMultipleWindows={false}
               onShouldStartLoadWithRequest={(req) => {
-                // Allow same-origin (digicards.ansoftt.com) and about:blank
                 if (!req.url || req.url === 'about:blank') return true;
                 const base = FRONTEND_BASE_URL.replace(/\/$/, '');
                 if (req.url.startsWith(base) || req.url.startsWith('https://digicards.ansoftt.com')) return true;
-                // Open external links (mailto, tel, https external) in device browser
-                Linking.openURL(req.url).catch(() => {});
+                Linking.openURL(req.url).catch(() => { });
                 return false;
               }}
             />
@@ -654,9 +739,9 @@ export default function MyCardScreen() {
           </View>
         )}
 
-        {/* ── Share button (native) ── */}
+        {/* ── Share button ── */}
         {cardUrl ? (
-          <View style={[s.footer, { backgroundColor: footerBg }]}>
+          <View style={s.footer}>
             <TouchableOpacity style={s.shareBtn} onPress={() => setShareOpen(true)}>
               <Ionicons name="paper-plane-outline" size={17} color="#fff" style={{ marginRight: 8 }} />
               <Text style={s.shareBtnText}>{appLang === 'ar' ? 'مشاركة' : 'Share'}</Text>
