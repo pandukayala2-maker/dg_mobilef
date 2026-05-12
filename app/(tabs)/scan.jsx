@@ -38,12 +38,16 @@ export default function ScanScreen() {
       <SafeAreaView style={[s.safe, { backgroundColor: bg }]}>
         <View style={s.center}>
           <Ionicons name="camera-outline" size={64} color={BRAND} style={{ marginBottom: 16 }} />
-          <Text style={[s.title, { color: text }]}>Camera Access Required</Text>
+          <Text style={[s.title, { color: text }]}>
+            {language === 'ar' ? 'مطلوب إذن الكاميرا' : 'Camera Access Required'}
+          </Text>
           <Text style={[s.subtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-            We need camera access to scan DigCard QR codes.
+            {language === 'ar' 
+              ? 'نحتاج إلى الوصول إلى الكاميرا لمسح رموز DigCard QR.' 
+              : 'We need camera access to scan DigCard QR codes.'}
           </Text>
           <TouchableOpacity style={s.btn} onPress={requestPermission}>
-            <Text style={s.btnText}>Allow Camera</Text>
+            <Text style={s.btnText}>{language === 'ar' ? 'السماح بالكاميرا' : 'Allow Camera'}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -54,7 +58,9 @@ export default function ScanScreen() {
     <SafeAreaView style={[s.safe, { backgroundColor: '#000' }]} edges={['top']}>
       {Platform.OS === 'web' ? (
         <View style={[s.center, { backgroundColor: bg }]}>
-          <Text style={[s.title, { color: text }]}>Scanner not supported on web</Text>
+          <Text style={[s.title, { color: text }]}>
+            {language === 'ar' ? 'الماسح الضوئي غير مدعوم على الويب' : 'Scanner not supported on web'}
+          </Text>
         </View>
       ) : (
         <View style={s.container}>
@@ -74,14 +80,14 @@ export default function ScanScreen() {
               <View style={[s.corner, s.bottomRight]} />
             </View>
             <Text style={s.scanHint}>
-              {language === 'ar' ? 'قم بتوجيه الكاميرا نحو رمز الاستجابة السريعة' : 'Point camera at a QR code to scan'}
+              {language === 'ar' ? 'قم بتوجيه الكاميرا نحو رمز QR' : 'Point camera at a QR code to scan'}
             </Text>
           </View>
           {scanned && (
             <View style={s.bottomPanel}>
               <TouchableOpacity style={s.rescanBtn} onPress={() => setScanned(false)}>
                 <Ionicons name="scan-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={s.btnText}>Tap to Scan Again</Text>
+                <Text style={s.btnText}>{language === 'ar' ? 'اضغط للمسح مرة أخرى' : 'Tap to Scan Again'}</Text>
               </TouchableOpacity>
             </View>
           )}

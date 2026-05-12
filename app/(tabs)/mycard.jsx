@@ -394,7 +394,7 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
 /* ═══════════════════════════════ Main Screen ═══════════════════════════════ */
 export default function MyCardScreen() {
   const { user, token, logout } = useAuth();
-  const { isDark: isAppDark } = useAppContext();
+  const { isDark: isAppDark, language: appLang } = useAppContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -448,9 +448,10 @@ export default function MyCardScreen() {
             setTenantSlug(ts);
             setCardSlug(cs);
             setCardId(data?.card_id || null);
-            setDisplayName(data?.name || 'My Card');
+            const dName = (appLang === 'ar' && data?.name_ar) ? data.name_ar : (data?.name || 'My Card');
+            setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
-            setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}`);
+            setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}?lang=${appLang}`);
             return;
           }
         } catch (err) {
@@ -467,13 +468,17 @@ export default function MyCardScreen() {
           setTenantSlug(tSlug);
           setCardSlug(cSlug);
           setCardId(user?.card_id || null);
-          setDisplayName(user?.name || 'My Card');
-          setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}`);
+          const dName = (appLang === 'ar' && user?.name_ar) ? user.name_ar : (user?.name || 'My Card');
+          setDisplayName(dName);
+          setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
 
           // Non-blocking: enrich avatar/name from slug endpoint
           authApi.getCardSlug().then(({ data }) => {
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
-            if (data?.name) setDisplayName(data.name);
+            if (data?.name) {
+              const dName = (appLang === 'ar' && data?.name_ar) ? data.name_ar : data.name;
+              setDisplayName(dName);
+            }
           }).catch(() => {});
           return;
         }
@@ -487,9 +492,10 @@ export default function MyCardScreen() {
             setTenantSlug(ts);
             setCardSlug(cs);
             setCardId(data?.card_id || user?.card_id || null);
-            setDisplayName(data?.name || user?.name || 'My Card');
+            const dName = (appLang === 'ar' && data?.name_ar) ? data.name_ar : (data?.name || user?.name || 'My Card');
+            setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
-            setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}`);
+            setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}?lang=${appLang}`);
           }
         } catch (err) {
           console.warn('[fetchCard card_user slug]', err?.response?.status, err?.message);
@@ -508,9 +514,10 @@ export default function MyCardScreen() {
         setCardId(cardData.id);
         setTenantSlug(tSlug);
         setCardSlug(cSlug);
-        setDisplayName(cardData.name || user?.name || 'My Card');
+        const dName = (appLang === 'ar' && cardData.name_ar) ? cardData.name_ar : (cardData.name || user?.name || 'My Card');
+        setDisplayName(dName);
         setAvatarUrl(resolveUrl(cardData.profile_image));
-        if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}`);
+        if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
         else if (cardData?.card_url) {
           const raw = String(cardData.card_url).replace(/^#?\/?/, '');
           setCardUrl(`${FRONTEND_BASE_URL}/#${raw}`);
@@ -523,7 +530,7 @@ export default function MyCardScreen() {
     }
   }, [user, token]);
 
-  useEffect(() => { fetchCard(); }, [fetchCard]);
+  useEffect(() => { fetchCard(); }, [fetchCard, appLang]);
 
   const pageBg = isAppDark ? '#0F172A' : '#F3F4F6';
   const footerBg = isAppDark ? 'rgba(15,23,42,0.97)' : 'rgba(243,244,246,0.97)';
@@ -579,6 +586,7 @@ export default function MyCardScreen() {
           <>
             {/* WebView renders EXACTLY the same card as the public web page */}
             <WebView
+              key={cardUrl}
               source={{ uri: cardUrl }}
               style={{ flex: 1, backgroundColor: pageBg }}
               startInLoadingState
@@ -651,7 +659,7 @@ export default function MyCardScreen() {
           <View style={[s.footer, { backgroundColor: footerBg }]}>
             <TouchableOpacity style={s.shareBtn} onPress={() => setShareOpen(true)}>
               <Ionicons name="paper-plane-outline" size={17} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={s.shareBtnText}>Share</Text>
+              <Text style={s.shareBtnText}>{appLang === 'ar' ? 'مشاركة' : 'Share'}</Text>
             </TouchableOpacity>
           </View>
         ) : null}

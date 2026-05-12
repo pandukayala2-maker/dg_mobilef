@@ -16,7 +16,7 @@ function TabIcon({ name, color, size, focused }) {
 }
 
 export default function TabsLayout() {
-  const { isDark } = useAppContext();
+  const { isDark, language } = useAppContext();
 
   return (
     <Tabs
@@ -49,7 +49,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="mycard"
         options={{
-          title: 'My Card',
+          title: language === 'ar' ? 'بطاقتي' : 'My Card',
           tabBarIcon: ({ color, size, focused }) => (
             <TabIcon name={focused ? 'card' : 'card-outline'} color={color} size={size} focused={focused} />
           ),
@@ -58,7 +58,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="contacts"
         options={{
-          title: 'Contacts',
+          title: language === 'ar' ? 'جهات الاتصال' : 'Contacts',
           tabBarIcon: ({ color, size, focused }) => (
             <TabIcon name={focused ? 'people' : 'people-outline'} color={color} size={size} focused={focused} />
           ),
@@ -67,7 +67,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="ainotetaker"
         options={{
-          title: 'AI Note',
+          title: language === 'ar' ? 'ملاحظة AI' : 'AI Note',
           tabBarIcon: ({ color, size, focused }) => (
             <TabIcon name={focused ? 'mic' : 'mic-outline'} color={color} size={size} focused={focused} />
           ),
@@ -76,7 +76,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Calendar',
+          title: language === 'ar' ? 'التقويم' : 'Calendar',
           tabBarIcon: ({ color, size, focused }) => (
             <TabIcon name={focused ? 'calendar' : 'calendar-outline'} color={color} size={size} focused={focused} />
           ),
