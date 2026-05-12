@@ -2,7 +2,7 @@
   "expo": {
     "name": "ANSOFTT DC",
     "slug": "dgmobile",
-    "version": "1.0.5",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/appicon.png",
     "userInterfaceStyle": "automatic",
@@ -15,6 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.digcard.dgmobile",
+      "buildNumber": "1",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Allow DigCard to use your microphone to record voice notes.",
         "NSFaceIDUsageDescription": "Allow ANSOFTT DC to use Face ID to verify your identity when opening the app.",
