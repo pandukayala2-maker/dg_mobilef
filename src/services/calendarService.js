@@ -31,6 +31,15 @@ export async function requestCalendarPermission() {
   }
 }
 
+export async function checkCalendarPermission() {
+  try {
+    const { status } = await Calendar.getCalendarPermissionsAsync();
+    return { granted: status === 'granted', status };
+  } catch (error) {
+    return { granted: false, status: 'undetermined' };
+  }
+}
+
 // ─── List calendars ───────────────────────────────────────────────────────────
 
 export async function listCalendars() {
@@ -126,4 +135,23 @@ export async function removeEvent(eventId) {
 
   await Calendar.deleteEventAsync(eventId);
   return { removed: true, eventId };
+}
+
+// ─── Get events from device calendars ─────────────────────────────────────────
+
+export async function getDeviceCalendarEvents(startDate, endDate) {
+  try {
+    const perm = await checkCalendarPermission();
+    if (!perm.granted) return [];
+
+    const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+    if (!calendars.length) return [];
+
+    const calendarIds = calendars.map((c) => c.id);
+    const events = await Calendar.getEventsAsync(calendarIds, startDate, endDate);
+    return events || [];
+  } catch (error) {
+    console.warn('[calendarService] Failed to fetch device events:', error?.message);
+    return [];
+  }
 }

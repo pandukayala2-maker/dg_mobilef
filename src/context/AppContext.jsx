@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { I18nManager, Alert } from 'react-native';
+import { I18nManager, Alert, DevSettings, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 
 const AppContext = createContext();
@@ -8,12 +8,16 @@ const AppContext = createContext();
 export const AppProvider = ({ children }) => {
   const [theme, setTheme] = useState('light'); // 'light' or 'dark'
   const [language, setLanguage] = useState('en'); // 'en' or 'ar'
+  const [brandColor, setBrandColorState] = useState('#1b4654');
 
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const storedTheme = await SecureStore.getItemAsync('app_theme');
         if (storedTheme) setTheme(storedTheme);
+
+        const storedColor = await SecureStore.getItemAsync('app_brand_color');
+        if (storedColor) setBrandColorState(storedColor);
 
         const storedLang = await SecureStore.getItemAsync('app_language');
         if (storedLang) {
@@ -40,18 +44,32 @@ export const AppProvider = ({ children }) => {
     setLanguage(lang);
     await SecureStore.setItemAsync('app_language', lang);
     
-    // Force RTL for Arabic
+    // Set RTL configuration so the next app start loads in the correct layout natively
     const isRTL = lang === 'ar';
     I18nManager.forceRTL(isRTL);
-    if (!__DEV__) {
-      Updates.reloadAsync().catch(()=>{});
-    } else {
-      Alert.alert('Language Changed', 'Please restart the app to apply language layout changes.');
-    }
+    
+    // Force immediate app reload to apply LTR/RTL switch natively
+    setTimeout(() => {
+      if (__DEV__) {
+        if (Platform.OS === 'web') {
+          window.location.reload();
+        } else {
+          DevSettings.reload();
+        }
+      } else {
+        Updates.reloadAsync().catch(() => {});
+      }
+    }, 400);
+  };
+
+  const setBrandColor = async (color) => {
+    if (!color || color === brandColor) return;
+    setBrandColorState(color);
+    await SecureStore.setItemAsync('app_brand_color', color).catch(() => {});
   };
 
   return (
-    <AppContext.Provider value={{ theme, isDark: theme === 'dark', toggleTheme, language, changeLanguage, isRTL: language === 'ar' }}>
+    <AppContext.Provider value={{ theme, isDark: theme === 'dark', toggleTheme, language, changeLanguage, isRTL: language === 'ar', brandColor, setBrandColor }}>
       {children}
     </AppContext.Provider>
   );

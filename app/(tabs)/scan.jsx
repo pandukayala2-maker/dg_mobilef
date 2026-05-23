@@ -11,7 +11,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
-  const { isDark, language } = useAppContext();
+  const { isDark, language, brandColor } = useAppContext();
 
   useEffect(() => {
     if (!permission?.granted && permission?.canAskAgain) {
@@ -22,7 +22,7 @@ export default function ScanScreen() {
   const handleBarCodeScanned = ({ type, data }) => {
     setScanned(true);
     if (data && data.startsWith('http')) {
-      Linking.openURL(data).catch(() => { });
+      Linking.openURL(data).catch(() => {});
     }
   };
 
@@ -37,17 +37,17 @@ export default function ScanScreen() {
     return (
       <SafeAreaView style={[s.safe, { backgroundColor: bg }]}>
         <View style={s.center}>
-          <Ionicons name="camera-outline" size={64} color={BRAND} style={{ marginBottom: 16 }} />
+          <Ionicons name="camera-outline" size={64} color={brandColor} style={{ marginBottom: 16 }} />
           <Text style={[s.title, { color: text }]}>
-            {language === 'ar' ? 'مطلوب إذن الكاميرا' : 'Camera Access Required'}
+            {language === 'ar' ? 'مطلب إذن الكاميرا' : 'Camera Access Required'}
           </Text>
           <Text style={[s.subtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-            {language === 'ar'
-              ? 'نحتاج إلى الوصول إلى الكاميرا لمسح رموز DigCard QR.'
+            {language === 'ar' 
+              ? 'نحتاج إلى الوصول إلى الكاميرا لمسح رموز DigCard QR.' 
               : 'We need camera access to scan DigCard QR codes.'}
           </Text>
-          <TouchableOpacity style={s.btn} onPress={requestPermission}>
-            <Text style={s.btnText}>Allow Camera</Text>
+          <TouchableOpacity style={[s.btn, { backgroundColor: brandColor }]} onPress={requestPermission}>
+            <Text style={s.btnText}>{language === 'ar' ? 'السماح بالكاميرا' : 'Allow Camera'}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -85,7 +85,7 @@ export default function ScanScreen() {
           </View>
           {scanned && (
             <View style={s.bottomPanel}>
-              <TouchableOpacity style={s.rescanBtn} onPress={() => setScanned(false)}>
+              <TouchableOpacity style={[s.rescanBtn, { backgroundColor: brandColor }]} onPress={() => setScanned(false)}>
                 <Ionicons name="scan-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
                 <Text style={s.btnText}>{language === 'ar' ? 'اضغط للمسح مرة أخرى' : 'Tap to Scan Again'}</Text>
               </TouchableOpacity>

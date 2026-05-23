@@ -91,5 +91,7 @@ export const leadsApi = {
   getAll: () => api.get('/cards/leads'),
   getByCard: (cardId) => api.get(`/cards/${cardId}/leads`),
   create: (data) => api.post('/public/card/lead', data),
+  update: (id, data) => api.put(`/cards/leads/${id}`, data),
+  delete: (id) => api.delete(`/cards/leads/${id}`),
 };
 

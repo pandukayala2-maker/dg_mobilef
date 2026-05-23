@@ -6,6 +6,7 @@ import {
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
+import { useAppContext } from '@/context/AppContext';
 
 const BRAND = '#1b4654';
 
@@ -17,6 +18,7 @@ const BRAND = '#1b4654';
  */
 export default function BiometricGate({ children }) {
   const { token, loading, consumeSkipNextBiometric } = useAuth();
+  const { brandColor } = useAppContext();
 
   const [ready,   setReady]   = useState(false);
   const [locked,  setLocked]  = useState(false);
@@ -121,11 +123,7 @@ export default function BiometricGate({ children }) {
     }
 
     // Skip lock once right after interactive login.
-    if (consumeSkipNextBiometric?.()) {
-      setReady(true);
-      setLocked(false);
-      return;
-    }
+    const skipLock = consumeSkipNextBiometric?.();
 
     (async () => {
       try {
@@ -142,11 +140,14 @@ export default function BiometricGate({ children }) {
             LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION
           );
           setBioType(isFace ? 'face' : 'fingerprint');
-          setLocked(true);
+          
+          if (skipLock) {
+            setLocked(false);
+          } else {
+            setLocked(true);
+            scheduleAuth();
+          }
           setReady(true);
-
-          // Trigger only when the activity is ready to avoid startup race conditions.
-          scheduleAuth();
         } else {
           // Hardware unavailable or no biometric enrolled → pass through
           setReady(true);
@@ -171,7 +172,7 @@ export default function BiometricGate({ children }) {
         backgroundAtRef.current = Date.now();
       }
 
-      if (!token || !bioAvailable.current) return;
+      if (!token || !bioAvailable.current || inProgress.current) return;
 
       const cameFromBackground = prevState === 'background';
 
@@ -191,8 +192,7 @@ export default function BiometricGate({ children }) {
 
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  if (!ready)  return null; // SplashScreen is still visible
-  if (!locked) return children;
+  if (!ready) return null; // SplashScreen is still visible
 
   const bioIcon  = bioType === 'face' ? 'scan-circle-outline' : 'finger-print-outline';
   const bioLabel = bioType === 'face' ? 'Face ID' : 'Fingerprint';
@@ -203,70 +203,73 @@ export default function BiometricGate({ children }) {
     `Unlock with ${bioLabel}`;
 
   return (
-    <View style={styles.screen}>
+    <View style={{ flex: 1 }}>
+      {children}
+      {locked && (
+        <View style={[StyleSheet.absoluteFill, styles.screen, { zIndex: 99999, backgroundColor: brandColor }]}>
+          {/* ── Top: logo + name ── */}
+          <View style={styles.top}>
+            <Image
+              source={require('../../assets/appicon.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.appName}>ANSOFTT DC</Text>
+            <Text style={styles.appSub}>Digital Business Card</Text>
+          </View>
 
-      {/* ── Top: logo + name ── */}
-      <View style={styles.top}>
-        <Image
-          source={require('../../assets/appicon.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-        <Text style={styles.appName}>ANSOFTT DC</Text>
-        <Text style={styles.appSub}>Digital Business Card</Text>
-      </View>
+          {/* ── Center: biometric icon ── */}
+          <View style={styles.center}>
+            <Animated.View
+              style={[
+                styles.iconRing,
+                status === 'failed' && styles.iconRingFailed,
+                { transform: [{ scale: pulseAnim }] },
+              ]}
+            >
+              <Ionicons name={bioIcon} size={72} color="#fff" />
+            </Animated.View>
 
-      {/* ── Center: biometric icon ── */}
-      <View style={styles.center}>
-        <Animated.View
-          style={[
-            styles.iconRing,
-            status === 'failed' && styles.iconRingFailed,
-            { transform: [{ scale: pulseAnim }] },
-          ]}
-        >
-          <Ionicons name={bioIcon} size={72} color="#fff" />
-        </Animated.View>
+            <Text style={styles.statusLabel}>{statusLabel}</Text>
 
-        <Text style={styles.statusLabel}>{statusLabel}</Text>
-
-        {status === 'failed' && (
-          <Text style={styles.errorHint}>
-            Biometric not recognised. Please try again.
-          </Text>
-        )}
-      </View>
-
-      {/* ── Bottom: action button ── */}
-      <View style={styles.bottom}>
-        <TouchableOpacity
-          style={[styles.btn, status === 'checking' && styles.btnDisabled]}
-          onPress={triggerAuth}
-          disabled={status === 'checking'}
-          activeOpacity={0.8}
-        >
-          {status === 'checking' ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <>
-              <Ionicons
-                name={bioType === 'face' ? 'scan-outline' : 'finger-print'}
-                size={20}
-                color="#fff"
-                style={{ marginRight: 8 }}
-              />
-              <Text style={styles.btnText}>
-                {status === 'failed' ? 'Try Again' : `Use ${bioLabel}`}
+            {status === 'failed' && (
+              <Text style={styles.errorHint}>
+                Biometric not recognised. Please try again.
               </Text>
-            </>
-          )}
-        </TouchableOpacity>
+            )}
+          </View>
 
-        <Text style={styles.footerNote}>
-          Your identity is verified locally on this device.
-        </Text>
-      </View>
+          {/* ── Bottom: action button ── */}
+          <View style={styles.bottom}>
+            <TouchableOpacity
+              style={[styles.btn, status === 'checking' && styles.btnDisabled]}
+              onPress={triggerAuth}
+              disabled={status === 'checking'}
+              activeOpacity={0.8}
+            >
+              {status === 'checking' ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons
+                    name={bioType === 'face' ? 'scan-outline' : 'finger-print'}
+                    size={20}
+                    color="#fff"
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.btnText}>
+                    {status === 'failed' ? 'Try Again' : `Use ${bioLabel}`}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
 
+            <Text style={styles.footerNote}>
+              Your identity is verified locally on this device.
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }

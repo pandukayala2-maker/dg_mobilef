@@ -16,10 +16,11 @@ function TabIcon({ name, color, size, focused }) {
 }
 
 export default function TabsLayout() {
-  const { isDark, language } = useAppContext();
+  const { isDark, language, brandColor } = useAppContext();
 
   return (
     <Tabs
+      key={language}
       initialRouteName="mycard"
       screenOptions={{
         headerShown: false,
@@ -31,7 +32,7 @@ export default function TabsLayout() {
             borderTopColor: isDark ? '#1E293B' : '#F1F5F9',
           },
         ],
-        tabBarActiveTintColor: isDark ? YELLOW : CORAL,
+        tabBarActiveTintColor: isDark ? YELLOW : brandColor,
         tabBarInactiveTintColor: isDark ? '#64748B' : '#94A3B8',
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,

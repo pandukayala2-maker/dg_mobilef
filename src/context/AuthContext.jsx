@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, useEffect } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, useRef } from 'react';
 import { authApi, tokenStore } from '@/services/api';
 
 const AuthContext = createContext(null);
@@ -7,7 +7,7 @@ export function AuthProvider({ children }) {
   const [token, setTokenState] = useState(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [skipNextBiometric, setSkipNextBiometric] = useState(false);
+  const skipNextBiometricRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -38,19 +38,19 @@ export function AuthProvider({ children }) {
   const setToken = async (t) => {
     try { await tokenStore.set('auth_token', t); } catch {}
     // Skip lock once right after interactive login.
-    setSkipNextBiometric(true);
+    skipNextBiometricRef.current = true;
     setTokenState(t);
   };
 
   const consumeSkipNextBiometric = useCallback(() => {
-    if (!skipNextBiometric) return false;
-    setSkipNextBiometric(false);
+    if (!skipNextBiometricRef.current) return false;
+    skipNextBiometricRef.current = false;
     return true;
-  }, [skipNextBiometric]);
+  }, []);
 
   const logout = async () => {
     try { await tokenStore.remove('auth_token'); } catch {}
-    setSkipNextBiometric(false);
+    skipNextBiometricRef.current = false;
     setTokenState(null);
     setUser(null);
   };

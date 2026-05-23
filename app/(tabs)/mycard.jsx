@@ -21,17 +21,16 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import * as WebBrowser from 'expo-web-browser';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
 import { useAuth } from '@/context/AuthContext';
-import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL, tokenStore } from '@/services/api';
+import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL } from '@/services/api';
 import { useAppContext } from '@/context/AppContext';
 
 const BRAND = '#1b4654';
@@ -59,6 +58,7 @@ const parseDigCardPath = (value) => {
 function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
   const translateX = useState(new Animated.Value(-SCREEN_WIDTH * 0.75))[0];
   const { isDark, toggleTheme, language, changeLanguage } = useAppContext();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     Animated.timing(translateX, {
@@ -70,7 +70,9 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
 
   if (!visible) return null;
 
-  const initials = (user?.name || 'U').split(' ').slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('');
+  const isAR = language === 'ar';
+  const displayName = isAR && user?.name_ar ? user.name_ar : (user?.name || 'User');
+  const initials = (displayName || 'U').split(' ').slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('');
   const bg = isDark ? '#1E293B' : '#fff';
   const text = isDark ? '#F8FAFC' : '#1A1A1A';
   const subtext = isDark ? '#94A3B8' : '#64748B';
@@ -80,34 +82,34 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
     <Modal transparent animationType="none" onRequestClose={onClose}>
       <TouchableOpacity style={sd.backdrop} activeOpacity={1} onPress={onClose} />
       <Animated.View style={[sd.panel, { transform: [{ translateX }], backgroundColor: bg }]}>
-        <SafeAreaView style={{ flex: 1 }}>
-          <ScrollView>
-            <View style={sd.profileSection}>
+        <View style={{ flex: 1, paddingBottom: Math.max(insets.bottom, 16) }}>
+          <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+            <View style={[sd.profileSection, { paddingTop: insets.top + 20, alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
               {avatarUrl
                 ? <Image source={{ uri: avatarUrl }} style={sd.avatar} />
                 : <View style={[sd.avatar, sd.avatarFallback]}>
-                  <Text style={sd.avatarInitial}>{initials}</Text>
-                </View>}
-              <Text style={sd.name} numberOfLines={1}>{user?.name || 'User'}</Text>
-              <Text style={sd.email} numberOfLines={1}>{user?.email || ''}</Text>
+                    <Text style={sd.avatarInitial}>{initials}</Text>
+                  </View>}
+              <Text style={[sd.name, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={1}>{displayName}</Text>
+              <Text style={[sd.email, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={1}>{user?.email || ''}</Text>
             </View>
 
             <View style={[sd.divider, { backgroundColor: divider }]} />
 
             <View style={sd.menu}>
-              <TouchableOpacity style={sd.menuItem} onPress={onClose}>
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#EDF5F3' }]}>
+              <TouchableOpacity style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={onClose}>
+                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#EDF5F3', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
                   <Text style={{ fontSize: 16 }}>💳</Text>
                 </View>
-                <Text style={[sd.menuLabel, { color: text }]}>{language === 'ar' ? 'بطاقتي' : 'My Card'}</Text>
+                <Text style={[sd.menuLabel, { color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'بطاقتي' : 'My Card'}</Text>
               </TouchableOpacity>
 
-              <View style={sd.menuItem}>
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(0,96,100,0.2)' : '#E0F7FA' }]}>
+              <View style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(0,96,100,0.2)' : '#E0F7FA', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
                   <Ionicons name="language-outline" size={20} color={isDark ? '#4DD0E1' : '#006064'} />
                 </View>
-                <Text style={[sd.menuLabel, { flex: 1, color: text }]}>{language === 'ar' ? 'اللغة' : 'Language'}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#334155' : '#F1F5F9', borderRadius: 20, padding: 4 }}>
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'اللغة' : 'Language'}</Text>
+                <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', alignItems: 'center', backgroundColor: isDark ? '#334155' : '#F1F5F9', borderRadius: 20, padding: 4 }}>
                   <TouchableOpacity
                     onPress={() => changeLanguage('en')}
                     style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: language === 'en' ? (isDark ? '#1E293B' : '#fff') : 'transparent', borderRadius: 16 }}
@@ -123,77 +125,99 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
                 </View>
               </View>
 
-              <View style={sd.menuItem}>
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(74,20,140,0.3)' : '#F3E5F5' }]}>
+              <View style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(74,20,140,0.3)' : '#F3E5F5', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
                   <Ionicons name="moon-outline" size={20} color={isDark ? '#E1BEE7' : '#4A148C'} />
                 </View>
-                <Text style={[sd.menuLabel, { flex: 1, color: text }]}>{language === 'ar' ? 'الوضع الداكن' : 'Dark Mode'}</Text>
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'الوضع الداكن' : 'Dark Mode'}</Text>
                 <Switch value={isDark} onValueChange={toggleTheme} trackColor={{ false: '#CBD5E1', true: BRAND }} />
               </View>
 
-              <TouchableOpacity
-                style={sd.menuItem}
+              <TouchableOpacity 
+                style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]} 
                 onPress={() => Linking.openURL('mailto:anintl.ind@gmail.com?subject=DigCard Support Request')}
               >
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FEF2F2' }]}>
+                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FEF2F2', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
                   <Ionicons name="help-buoy-outline" size={20} color="#EF4444" />
                 </View>
-                <Text style={[sd.menuLabel, { color: text }]}>{language === 'ar' ? 'الدعم الفني' : 'Support'}</Text>
+                <Text style={[sd.menuLabel, { color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'الدعم الفني' : 'Support'}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
 
-          <View style={{ paddingVertical: 16 }}>
+          <View style={{ paddingVertical: 8 }}>
             <TouchableOpacity style={sd.signOutBtn} onPress={onLogout}>
-              <Text style={sd.signOutText}>{language === 'ar' ? 'تسجيل خروج' : 'Sign Out'}</Text>
+              <Text style={sd.signOutText}>{isAR ? 'تسجيل خروج' : 'Sign Out'}</Text>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
       </Animated.View>
     </Modal>
   );
 }
 
 /* ─── Share option row ─── */
-function ShareRow({ icon, label, onPress, isLast, customIcon }) {
+function ShareRow({ icon, label, onPress, isLast, customIcon, isAR }) {
   return (
-    <TouchableOpacity style={[sh.row, !isLast && sh.rowBorder]} onPress={onPress} activeOpacity={0.7}>
-      <View style={sh.rowIconWrap}>
+    <TouchableOpacity 
+      style={[sh.row, !isLast && sh.rowBorder, { flexDirection: isAR ? 'row-reverse' : 'row' }]} 
+      onPress={onPress} 
+      activeOpacity={0.7}
+    >
+      <View style={[sh.rowIconWrap, { marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
         {customIcon || <Ionicons name={icon} size={22} color="#fff" />}
       </View>
-      <Text style={sh.rowLabel}>{label}</Text>
-      <Ionicons name="chevron-forward" size={15} color="rgba(255,255,255,0.35)" />
+      <Text style={[sh.rowLabel, { flex: 1, textAlign: isAR ? 'right' : 'left' }]}>{label}</Text>
+      <Ionicons name={isAR ? "chevron-back" : "chevron-forward"} size={15} color="rgba(255,255,255,0.35)" />
     </TouchableOpacity>
   );
 }
 
 /* ─── Email sub-screen ─── */
-function EmailScreen({ onBack, cardUrl, displayName }) {
+function EmailScreen({ onBack, cardUrl, displayName, isAR }) {
   const [to, setTo] = useState('');
-  const [message, setMessage] = useState('Hi, tap this link to get my business card:');
+  const [message, setMessage] = useState(isAR ? 'مرحباً، اضغط على هذا الرابط للحصول على بطاقة عملي:' : 'Hi, tap this link to get my business card:');
   const send = () => {
-    if (!to.trim()) { Alert.alert('Required', 'Enter a recipient email.'); return; }
+    if (!to.trim()) { Alert.alert(isAR ? 'مطلوب' : 'Required', isAR ? 'يرجى إدخال البريد الإلكتروني للمستلم.' : 'Enter a recipient email.'); return; }
     Linking.openURL(`mailto:${encodeURIComponent(to.trim())}?subject=${encodeURIComponent(`${displayName}'s Digital Card`)}&body=${encodeURIComponent(`${message}\n\n${cardUrl}`)}`);
   };
   return (
     <KeyboardAvoidingView style={sub.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={sub.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={12}><Ionicons name="chevron-back" size={26} color="#fff" /></TouchableOpacity>
-        <Text style={sub.headerTitle}>Email Your Card</Text>
-        <TouchableOpacity onPress={send} hitSlop={12}><Text style={sub.headerAction}>SEND</Text></TouchableOpacity>
+      <View style={[sub.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+        <TouchableOpacity onPress={onBack} hitSlop={12}>
+          <Ionicons name={isAR ? 'chevron-forward' : 'chevron-back'} size={26} color="#fff" />
+        </TouchableOpacity>
+        <Text style={sub.headerTitle}>{isAR ? 'إرسال بطاقتك بالبريد' : 'Email Your Card'}</Text>
+        <TouchableOpacity onPress={send} hitSlop={12}>
+          <Text style={sub.headerAction}>{isAR ? 'إرسال' : 'SEND'}</Text>
+        </TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={sub.body} keyboardShouldPersistTaps="handled">
-        <View style={sub.card}>
-          <Text style={sub.cardLabel}>To...</Text>
-          <TextInput style={sub.input} placeholder="recipient@email.com" placeholderTextColor="rgba(255,255,255,0.4)" value={to} onChangeText={setTo} keyboardType="email-address" autoCapitalize="none" />
+        <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
+          <Text style={sub.cardLabel}>{isAR ? 'إلى...' : 'To...'}</Text>
+          <TextInput 
+            style={[sub.input, { textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
+            placeholder="recipient@email.com" 
+            placeholderTextColor="rgba(255,255,255,0.4)" 
+            value={to} 
+            onChangeText={setTo} 
+            keyboardType="email-address" 
+            autoCapitalize="none" 
+          />
         </View>
-        <View style={sub.card}>
-          <Text style={sub.cardLabel}>Message...</Text>
-          <TextInput style={[sub.input, { minHeight: 60 }]} multiline value={message} onChangeText={setMessage} placeholderTextColor="rgba(255,255,255,0.4)" />
+        <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
+          <Text style={sub.cardLabel}>{isAR ? 'الرسالة...' : 'Message...'}</Text>
+          <TextInput 
+            style={[sub.input, { minHeight: 60, textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
+            multiline 
+            value={message} 
+            onChangeText={setMessage} 
+            placeholderTextColor="rgba(255,255,255,0.4)" 
+          />
         </View>
-        <TouchableOpacity style={sub.sendBtn} onPress={send} activeOpacity={0.85}>
-          <Ionicons name="send" size={18} color={BRAND} style={{ marginRight: 8 }} />
-          <Text style={sub.sendBtnText}>SEND EMAIL</Text>
+        <TouchableOpacity style={[sub.sendBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={send} activeOpacity={0.85}>
+          <Ionicons name="send" size={18} color={BRAND} style={isAR ? { marginLeft: 8 } : { marginRight: 8 }} />
+          <Text style={sub.sendBtnText}>{isAR ? 'إرسال البريد الإلكتروني' : 'SEND EMAIL'}</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -201,29 +225,46 @@ function EmailScreen({ onBack, cardUrl, displayName }) {
 }
 
 /* ─── Text sub-screen ─── */
-function TextScreen({ onBack, cardUrl }) {
+function TextScreen({ onBack, cardUrl, isAR }) {
   const [phone, setPhone] = useState('');
-  const [message, setMessage] = useState('Hi, tap this link to get my business card:');
+  const [message, setMessage] = useState(isAR ? 'مرحباً، اضغط على هذا الرابط للحصول على بطاقة عملي:' : 'Hi, tap this link to get my business card:');
   const send = () => Linking.openURL(phone.trim() ? `sms:${encodeURIComponent(phone.trim())}?body=${encodeURIComponent(`${message}\n${cardUrl}`)}` : `sms:?body=${encodeURIComponent(`${message}\n${cardUrl}`)}`);
   return (
     <KeyboardAvoidingView style={sub.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={sub.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={12}><Ionicons name="chevron-back" size={26} color="#fff" /></TouchableOpacity>
-        <Text style={sub.headerTitle}>Text Your Card</Text>
-        <TouchableOpacity onPress={send} hitSlop={12}><Text style={sub.headerAction}>SEND</Text></TouchableOpacity>
+      <View style={[sub.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+        <TouchableOpacity onPress={onBack} hitSlop={12}>
+          <Ionicons name={isAR ? 'chevron-forward' : 'chevron-back'} size={26} color="#fff" />
+        </TouchableOpacity>
+        <Text style={sub.headerTitle}>{isAR ? 'إرسال بطاقتك بنص' : 'Text Your Card'}</Text>
+        <TouchableOpacity onPress={send} hitSlop={12}>
+          <Text style={sub.headerAction}>{isAR ? 'إرسال' : 'SEND'}</Text>
+        </TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={sub.body} keyboardShouldPersistTaps="handled">
-        <View style={sub.card}>
-          <Text style={sub.cardLabel}>Phone number...</Text>
-          <TextInput style={sub.input} placeholder="Phone number" placeholderTextColor="rgba(255,255,255,0.4)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+        <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
+          <Text style={sub.cardLabel}>{isAR ? 'رقم الهاتف...' : 'Phone number...'}</Text>
+          <TextInput 
+            style={[sub.input, { textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
+            placeholder={isAR ? "رقم الهاتف" : "Phone number"} 
+            placeholderTextColor="rgba(255,255,255,0.4)" 
+            value={phone} 
+            onChangeText={setPhone} 
+            keyboardType="phone-pad" 
+          />
         </View>
-        <View style={sub.card}>
-          <Text style={sub.cardLabel}>Message...</Text>
-          <TextInput style={[sub.input, { minHeight: 60 }]} multiline value={message} onChangeText={setMessage} placeholderTextColor="rgba(255,255,255,0.4)" />
+        <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
+          <Text style={sub.cardLabel}>{isAR ? 'الرسالة...' : 'Message...'}</Text>
+          <TextInput 
+            style={[sub.input, { minHeight: 60, textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
+            multiline 
+            value={message} 
+            onChangeText={setMessage} 
+            placeholderTextColor="rgba(255,255,255,0.4)" 
+          />
         </View>
-        <TouchableOpacity style={sub.sendBtn} onPress={send} activeOpacity={0.85}>
-          <Ionicons name="send" size={18} color={BRAND} style={{ marginRight: 8 }} />
-          <Text style={sub.sendBtnText}>SEND TEXT</Text>
+        <TouchableOpacity style={[sub.sendBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={send} activeOpacity={0.85}>
+          <Ionicons name="send" size={18} color={BRAND} style={isAR ? { marginLeft: 8 } : { marginRight: 8 }} />
+          <Text style={sub.sendBtnText}>{isAR ? 'إرسال الرسالة' : 'SEND TEXT'}</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -231,10 +272,10 @@ function TextScreen({ onBack, cardUrl }) {
 }
 
 /* ─── WhatsApp sub-screen ─── */
-function WhatsAppScreen({ onBack, cardUrl }) {
+function WhatsAppScreen({ onBack, cardUrl, isAR }) {
   const [countryCode, setCountryCode] = useState('+965');
   const [phone, setPhone] = useState('');
-  const [message, setMessage] = useState('Hi, tap this link to get my business card:');
+  const [message, setMessage] = useState(isAR ? 'مرحباً، اضغط على هذا الرابط للحصول على بطاقة عملي:' : 'Hi, tap this link to get my business card:');
   const send = () => {
     const num = `${countryCode}${phone}`.replace(/[^+\d]/g, '');
     if (num.length > 4) Linking.openURL(`https://wa.me/${num.replace('+', '')}?text=${encodeURIComponent(`${message}\n${cardUrl}`)}`);
@@ -242,26 +283,30 @@ function WhatsAppScreen({ onBack, cardUrl }) {
   };
   return (
     <KeyboardAvoidingView style={sub.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={sub.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={12}><Ionicons name="chevron-back" size={26} color="#fff" /></TouchableOpacity>
-        <Text style={sub.headerTitle}>Send via WhatsApp</Text>
-        <TouchableOpacity onPress={send} hitSlop={12}><Text style={sub.headerAction}>SEND</Text></TouchableOpacity>
+      <View style={[sub.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+        <TouchableOpacity onPress={onBack} hitSlop={12}>
+          <Ionicons name={isAR ? 'chevron-forward' : 'chevron-back'} size={26} color="#fff" />
+        </TouchableOpacity>
+        <Text style={sub.headerTitle}>{isAR ? 'إرسال عبر واتساب' : 'Send via WhatsApp'}</Text>
+        <TouchableOpacity onPress={send} hitSlop={12}>
+          <Text style={sub.headerAction}>{isAR ? 'إرسال' : 'SEND'}</Text>
+        </TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={sub.body} keyboardShouldPersistTaps="handled">
-        <View style={sub.card}>
-          <Text style={sub.cardLabel}>Number...</Text>
-          <View style={{ flexDirection: 'row' }}>
-            <TextInput style={[sub.input, { width: 60, marginRight: 8 }]} value={countryCode} onChangeText={setCountryCode} keyboardType="phone-pad" />
-            <TextInput style={[sub.input, { flex: 1 }]} placeholder="Phone number" placeholderTextColor="rgba(255,255,255,0.4)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+        <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
+          <Text style={sub.cardLabel}>{isAR ? 'الرقم...' : 'Number...'}</Text>
+          <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', width: '100%' }}>
+            <TextInput style={[sub.input, { width: 60, [isAR ? 'marginLeft' : 'marginRight']: 8, textAlign: 'center' }]} value={countryCode} onChangeText={setCountryCode} keyboardType="phone-pad" />
+            <TextInput style={[sub.input, { flex: 1, textAlign: isAR ? 'right' : 'left' }]} placeholder={isAR ? "رقم الهاتف" : "Phone number"} placeholderTextColor="rgba(255,255,255,0.4)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
           </View>
         </View>
-        <View style={sub.card}>
-          <Text style={sub.cardLabel}>Message...</Text>
-          <TextInput style={[sub.input, { minHeight: 60 }]} multiline value={message} onChangeText={setMessage} placeholderTextColor="rgba(255,255,255,0.4)" />
+        <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
+          <Text style={sub.cardLabel}>{isAR ? 'الرسالة...' : 'Message...'}</Text>
+          <TextInput style={[sub.input, { minHeight: 60, textAlign: isAR ? 'right' : 'left', width: '100%' }]} multiline value={message} onChangeText={setMessage} placeholderTextColor="rgba(255,255,255,0.4)" />
         </View>
-        <TouchableOpacity style={sub.sendBtn} onPress={send} activeOpacity={0.85}>
-          <Ionicons name="send" size={18} color={BRAND} style={{ marginRight: 8 }} />
-          <Text style={sub.sendBtnText}>SEND MESSAGE</Text>
+        <TouchableOpacity style={[sub.sendBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={send} activeOpacity={0.85}>
+          <Ionicons name="send" size={18} color={BRAND} style={isAR ? { marginLeft: 8 } : { marginRight: 8 }} />
+          <Text style={sub.sendBtnText}>{isAR ? 'إرسال الرسالة' : 'SEND MESSAGE'}</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -274,19 +319,29 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
   const [subScreen, setSubScreen] = useState(null);
   const qrSvgRef = useRef(null);
   const insets = useSafeAreaInsets();
-  const shareMsg = `Check out my digital business card: ${cardUrl}`;
+  const { language } = useAppContext();
+  const isAR = language === 'ar';
+
+  const shareMsg = isAR 
+    ? `تحقق من بطاقة عملي الرقمية: ${cardUrl}`
+    : `Check out my digital business card: ${cardUrl}`;
 
   const copyLink = async () => {
-    try { await Clipboard.setStringAsync(cardUrl); Alert.alert('Copied!', 'Card link copied to clipboard.'); }
-    catch { Alert.alert('Error', 'Could not copy link.'); }
+    try { 
+      await Clipboard.setStringAsync(cardUrl); 
+      Alert.alert(isAR ? 'تم النسخ!' : 'Copied!', isAR ? 'تم نسخ رابط البطاقة إلى الحافظة.' : 'Card link copied to clipboard.'); 
+    }
+    catch { 
+      Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'تعذر نسخ الرابط.' : 'Could not copy link.'); 
+    }
   };
 
   const sendOther = async () => {
-    try { await Share.share({ message: shareMsg, url: cardUrl }); } catch { }
+    try { await Share.share({ message: shareMsg, url: cardUrl }); } catch {}
   };
 
   const saveQRToPhotos = async () => {
-    if (!qrSvgRef.current?.toDataURL) { Alert.alert('Error', 'QR not ready. Try again.'); return; }
+    if (!qrSvgRef.current?.toDataURL) { Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'رمز QR غير جاهز بعد. حاول مجدداً.' : 'QR not ready. Try again.'); return; }
     try {
       const base64 = await new Promise((res, rej) => qrSvgRef.current.toDataURL(d => d ? res(d) : rej(new Error('Empty'))));
       const clean = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
@@ -297,149 +352,99 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
         const asset = await MediaLibrary.createAssetAsync(uri);
         const album = await MediaLibrary.getAlbumAsync('ANSOFTT DC');
         album ? await MediaLibrary.addAssetsToAlbumAsync([asset], album, false) : await MediaLibrary.createAlbumAsync('ANSOFTT DC', asset, false);
-        Alert.alert('Saved', 'QR code saved to your photos.');
+        Alert.alert(isAR ? 'تم الحفظ' : 'Saved', isAR ? 'تم حفظ رمز QR في صورك.' : 'QR code saved to your photos.');
       } else {
         const can = await Sharing.isAvailableAsync();
-        can ? await Sharing.shareAsync(uri, { mimeType: 'image/png' }) : Alert.alert('Error', 'Permission denied.');
+        can ? await Sharing.shareAsync(uri, { mimeType: 'image/png' }) : Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'تم رفض الإذن.' : 'Permission denied.');
       }
-    } catch (err) { Alert.alert('Error', err?.message || 'Could not save QR.'); }
+    } catch (err) { Alert.alert(isAR ? 'خطأ' : 'Error', err?.message || (isAR ? 'تعذر حفظ رمز QR.' : 'Could not save QR.')); }
   };
 
   const addToWallet = async () => {
-    if ((!tenantSlug || !cardSlug) && !cardId) {
-      Alert.alert('Unavailable', 'Card info not found.');
-      return;
-    }
+    if ((!tenantSlug || !cardSlug) && !cardId) { Alert.alert(isAR ? 'غير متوفر' : 'Unavailable', isAR ? 'معلومات البطاقة غير متوفرة.' : 'Card info not found.'); return; }
     setWalletLoading(true);
     try {
-      let activeCardId = cardId;
-
-      // Resolve cardId if missing
-      if (!activeCardId && tenantSlug && cardSlug) {
-        try {
-          const { data } = await cardsApi.getPublicCard(tenantSlug, cardSlug);
-          activeCardId = data?.card?.id || data?.id || data?.data?.id;
-        } catch { }
+      let walletUrl = null;
+      if (tenantSlug && cardSlug) {
+        try { const { data } = await cardsApi.getPublicWalletPass(tenantSlug, cardSlug); walletUrl = data?.walletUrl; } catch {}
       }
-
-      if (Platform.OS === 'ios') {
-        // PRIMARY: Open via in-app browser (SFSafariViewController).
-        // When iOS receives Content-Type: application/vnd.apple.pkpass inside
-        // SFSafariViewController it shows the native "Add to Apple Wallet" sheet
-        // directly — NO share sheet, NO leaving the app.
-        if (tenantSlug && cardSlug) {
-          const publicPassUrl = `${API_BASE_URL}/public/card/apple-pass/${tenantSlug}/${cardSlug}`;
-          await WebBrowser.openBrowserAsync(publicPassUrl, {
-            dismissButtonStyle: 'close',
-            enableBarCollapsing: false,
-          });
-          return;
-        }
-
-        // FALLBACK: download with auth token then share (shows share sheet)
-        const token = await tokenStore.get('auth_token');
-        const fileName = `dg-card-${(cardSlug || activeCardId || 'pass').replace(/[^a-z0-9-]/gi, '_')}.pkpass`;
-        const localUri = `${FileSystem.documentDirectory}${fileName}`;
-        const passUrl = activeCardId
-          ? `${API_BASE_URL}/cards/wallet/apple-pass/${activeCardId}`
-          : null;
-
-        if (!passUrl) {
-          Alert.alert('Error', 'Card identifier not found for Apple Wallet.');
-          return;
-        }
-
-        const result = await FileSystem.downloadAsync(passUrl, localUri, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-
-        if (result.status !== 200) {
-          Alert.alert('Error', `Could not generate pass. (Status: ${result.status})`);
-          return;
-        }
-
-        await Sharing.shareAsync(localUri, {
-          mimeType: 'application/vnd.apple.pkpass',
-          UTI: 'com.apple.pkpass',
-        });
-
-      } else {
-        // Android — open Google Wallet URL
-        let walletUrl = null;
-        if (tenantSlug && cardSlug) {
-          try { const { data } = await cardsApi.getPublicWalletPass(tenantSlug, cardSlug); walletUrl = data?.walletUrl; } catch { }
-        }
-        if (!walletUrl && activeCardId) {
-          try { const { data } = await cardsApi.getWalletPass(activeCardId); walletUrl = data?.walletUrl; } catch { }
-        }
-        walletUrl
-          ? await Linking.openURL(walletUrl)
-          : Alert.alert('Error', 'Could not generate wallet pass.');
-      }
+      if (!walletUrl && cardId) { const { data } = await cardsApi.getWalletPass(cardId); walletUrl = data?.walletUrl; }
+      walletUrl ? await Linking.openURL(walletUrl) : Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'تعذر إنشاء بطاقة المحفظة.' : 'Could not generate wallet pass.');
     } catch (err) {
-      Alert.alert('Error', err?.response?.data?.message || err?.message || 'Failed.');
-    } finally {
-      setWalletLoading(false);
-    }
+      Alert.alert(isAR ? 'خطأ' : 'Error', err?.response?.data?.message || err?.message || (isAR ? 'فشلت العملية.' : 'Failed.'));
+    } finally { setWalletLoading(false); }
   };
-
-
 
   return (
     <Modal visible={visible} animationType="slide" statusBarTranslucent>
       <SafeAreaView style={sh.safe}>
-        {subScreen === 'email' && <EmailScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} displayName={displayName} />}
-        {subScreen === 'text' && <TextScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} />}
-        {subScreen === 'whatsapp' && <WhatsAppScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} />}
+        {subScreen === 'email' && <EmailScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} displayName={displayName} isAR={isAR} />}
+        {subScreen === 'text' && <TextScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} isAR={isAR} />}
+        {subScreen === 'whatsapp' && <WhatsAppScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} isAR={isAR} />}
+
         {!subScreen && (
           <>
             <StatusBar barStyle="light-content" backgroundColor={BRAND} />
-            <View style={[sh.header, { paddingTop: Math.max(insets.top, 8) + 6 }]}>
+            <View style={[sh.header, { paddingTop: Math.max(insets.top, 8) + 6, flexDirection: isAR ? 'row-reverse' : 'row' }]}>
               <TouchableOpacity onPress={() => { setSubScreen(null); onClose(); }} hitSlop={12} style={sh.headerBtn}>
                 <Ionicons name="close" size={26} color="#fff" />
               </TouchableOpacity>
-              <Text style={sh.headerTitle}>Send Your Card</Text>
+              <Text style={sh.headerTitle}>{isAR ? 'إرسال بطاقتك' : 'Send Your Card'}</Text>
               <View style={sh.headerBtn} />
             </View>
+
             <ScrollView contentContainerStyle={sh.scroll} showsVerticalScrollIndicator={false}>
               {cardUrl ? (
                 <View style={sh.qrWrap}>
                   <View style={sh.qrBox}>
                     <QRCode value={cardUrl} size={210} color="#111" backgroundColor="#fff" getRef={r => { qrSvgRef.current = r; }} />
                   </View>
-                  <Text style={sh.qrText}>Point your camera at the QR{'\n'}code to receive the card</Text>
+                  <Text style={sh.qrText}>
+                    {isAR 
+                      ? `وجه الكاميرا نحو رمز QR\nلاستلام البطاقة` 
+                      : `Point your camera at the QR\ncode to receive the card`}
+                  </Text>
                 </View>
               ) : null}
+
               <View style={sh.group}>
-                <ShareRow icon="copy-outline" label="Copy link" onPress={copyLink} isLast />
+                <ShareRow icon="copy-outline" label={isAR ? 'نسخ الرابط' : 'Copy link'} onPress={copyLink} isLast isAR={isAR} />
               </View>
+
               <View style={sh.group}>
-                <ShareRow icon="chatbubble-outline" label="Text your card" onPress={() => setSubScreen('text')} />
-                <ShareRow icon="mail-outline" label="Email your card" onPress={() => setSubScreen('email')} />
-                <ShareRow label="Send via WhatsApp" onPress={() => setSubScreen('whatsapp')}
+                <ShareRow icon="chatbubble-outline" label={isAR ? 'إرسال عبر رسالة نصية' : 'Text your card'} onPress={() => setSubScreen('text')} isAR={isAR} />
+                <ShareRow icon="mail-outline" label={isAR ? 'إرسال عبر بريد إلكتروني' : 'Email your card'} onPress={() => setSubScreen('email')} isAR={isAR} />
+                <ShareRow label={isAR ? 'إرسال عبر واتساب' : 'Send via WhatsApp'} onPress={() => setSubScreen('whatsapp')} isAR={isAR}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#25D366' }]}><Ionicons name="logo-whatsapp" size={16} color="#fff" /></View>} />
-                <ShareRow label="Send via LinkedIn" onPress={() => Linking.openURL(`https://www.linkedin.com/messaging/compose/?body=${encodeURIComponent(shareMsg)}`)}
+                <ShareRow label={isAR ? 'إرسال عبر لينكد إن' : 'Send via LinkedIn'} onPress={() => Linking.openURL(`https://www.linkedin.com/messaging/compose/?body=${encodeURIComponent(`${shareMsg}`)}`)} isAR={isAR}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
-                <ShareRow icon="ellipsis-horizontal" label="Send another way" onPress={sendOther} isLast />
+                <ShareRow icon="ellipsis-horizontal" label={isAR ? 'إرسال بطريقة أخرى' : 'Send another way'} onPress={sendOther} isLast isAR={isAR} />
               </View>
+
               <View style={sh.group}>
-                <ShareRow label="Post to LinkedIn" onPress={() => Linking.openURL(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(cardUrl)}`)}
+                <ShareRow label={isAR ? 'نشر على لينكد إن' : 'Post to LinkedIn'} onPress={() => Linking.openURL(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(cardUrl)}`)} isAR={isAR}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
-                <ShareRow label="Post to Facebook" onPress={() => Linking.openURL(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(cardUrl)}`)} isLast
+                <ShareRow label={isAR ? 'نشر على فيسبوك' : 'Post to Facebook'} onPress={() => Linking.openURL(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(cardUrl)}`)} isLast isAR={isAR}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: '#1877F2' }]}><Ionicons name="logo-facebook" size={17} color="#fff" /></View>} />
               </View>
+
               <View style={sh.group}>
-                <ShareRow label="Save QR to photos" onPress={saveQRToPhotos}
+                <ShareRow label={isAR ? 'حفظ رمز QR في الصور' : 'Save QR to photos'} onPress={saveQRToPhotos} isAR={isAR}
                   customIcon={<View style={[sh.brandBadge, { backgroundColor: 'transparent' }]}><Text style={{ fontSize: 22 }}>🖼️</Text></View>} />
-                <ShareRow icon="paper-plane-outline" label="Send QR code" onPress={() => Share.share({ message: `${shareMsg}\n\nScan the QR or open the link.`, url: cardUrl }).catch(() => { })} isLast />
+                <ShareRow icon="paper-plane-outline" label={isAR ? 'إرسال رمز QR' : 'Send QR code'} onPress={() => Share.share({ message: `${shareMsg}\n\nScan the QR or open the link.`, url: cardUrl }).catch(() => {})} isLast isAR={isAR} />
               </View>
+
               <View style={sh.group}>
-                <TouchableOpacity style={sh.row} onPress={addToWallet} activeOpacity={0.7} disabled={walletLoading}>
-                  <View style={sh.rowIconWrap}>
+                <TouchableOpacity style={[sh.row, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={addToWallet} activeOpacity={0.7} disabled={walletLoading}>
+                  <View style={[sh.rowIconWrap, { marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
                     {walletLoading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="wallet-outline" size={22} color="#fff" />}
                   </View>
-                  <Text style={[sh.rowLabel, { flex: 1 }]}>{walletLoading ? 'Opening wallet…' : 'Add card to wallet'}</Text>
-                  <Ionicons name="chevron-forward" size={15} color="rgba(255,255,255,0.35)" />
+                  <Text style={[sh.rowLabel, { flex: 1, textAlign: isAR ? 'right' : 'left' }]}>
+                    {walletLoading 
+                      ? (isAR ? 'جاري فتح المحفظة...' : 'Opening wallet…') 
+                      : (isAR ? 'إضافة البطاقة إلى المحفظة' : 'Add card to wallet')}
+                  </Text>
+                  <Ionicons name={isAR ? "chevron-back" : "chevron-forward"} size={15} color="rgba(255,255,255,0.35)" />
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -456,7 +461,6 @@ export default function MyCardScreen() {
   const { isDark: isAppDark, language: appLang } = useAppContext();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const webviewRef = useRef(null);
 
   const [cardUrl, setCardUrl] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -465,67 +469,65 @@ export default function MyCardScreen() {
   const [cardSlug, setCardSlug] = useState('');
   const [tenantSlug, setTenantSlug] = useState('');
   const [loading, setLoading] = useState(true);
+  const [webLoading, setWebLoading] = useState(true);
   const [shareOpen, setShareOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [upcomingMeeting, setUpcomingMeeting] = useState(null);
-  const [notifGranted, setNotifGranted] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('fab'); // 'fab' or 'footer'
 
-  // Request notification permission on mount
   useEffect(() => {
-    if (Platform.OS === 'web') return;
-    (async () => {
-      const { status } = await Notifications.getPermissionsAsync();
-      if (status === 'granted') {
-        setNotifGranted(true);
-      } else if (status === 'undetermined') {
-        const { status: newStatus } = await Notifications.requestPermissionsAsync();
-        setNotifGranted(newStatus === 'granted');
+    const loadLayoutPreference = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('mycard_layout_mode');
+        if (saved) {
+          setLayoutMode(saved);
+        }
+      } catch (err) {
+        console.warn('[loadLayoutPreference]', err);
       }
-    })();
+    };
+    loadLayoutPreference();
   }, []);
 
-  const handleBellPress = async () => {
-    if (!notifGranted && Platform.OS !== 'web') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status === 'granted') {
-        setNotifGranted(true);
-        router.push('/(tabs)/calendar');
-        return;
+  const lastToggleTime = useRef(0);
+
+  const toggleLayoutMode = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastToggleTime.current < 500) return; // Prevent double-triggering
+    lastToggleTime.current = now;
+
+    setLayoutMode((prev) => {
+      const nextMode = prev === 'fab' ? 'footer' : 'fab';
+      AsyncStorage.setItem('mycard_layout_mode', nextMode).catch((err) =>
+        console.warn('[saveLayoutPreference]', err)
+      );
+      return nextMode;
+    });
+  }, []);
+
+  const handleMessage = useCallback((event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'DOUBLE_TAP') {
+        toggleLayoutMode();
       }
-      Alert.alert(
-        'Notifications Disabled',
-        'Enable notifications in Settings to get meeting reminders.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
-      return;
+    } catch (err) {
+      // Ignore
     }
-    if (upcomingMeeting) {
-      Alert.alert(
-        'Meeting Reminder',
-        `You have an upcoming meeting: "${upcomingMeeting.title}" tomorrow.`,
-        [
-          { text: 'Later', style: 'cancel' },
-          { text: 'View Calendar', onPress: () => router.push('/(tabs)/calendar') },
-        ]
-      );
-    } else {
-      router.push('/(tabs)/calendar');
-    }
-  };
+  }, [toggleLayoutMode]);
 
   const fetchUpcoming = useCallback(async () => {
     try {
       const { data } = await cardsApi.getMeetings();
       const list = data.meetings || [];
+      // Check if any meeting is "tomorrow"
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowDateStr = tomorrow.toISOString().split('T')[0];
+      
       const found = list.find(m => m.time.startsWith(tomorrowDateStr));
       setUpcomingMeeting(found || null);
-    } catch { }
+    } catch {}
   }, []);
 
   useEffect(() => { fetchUpcoming(); }, [fetchUpcoming]);
@@ -552,10 +554,20 @@ export default function MyCardScreen() {
             setTenantSlug(ts);
             setCardSlug(cs);
             setCardId(data?.card_id || null);
-            const dName = (appLang === 'ar' && data?.name_ar) ? data.name_ar : (data?.name || 'My Card');
+            const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
             setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}?lang=${appLang}`);
+
+            // Enrich from public card endpoint
+            cardsApi.getPublicCard(ts, cs).then(({ data: cardRes }) => {
+              const card = cardRes?.card || cardRes;
+              if (card) {
+                if (card.profile_image) setAvatarUrl(resolveUrl(card.profile_image));
+                const finalName = (appLang === 'ar' && card.name_ar) ? card.name_ar : (card.name || user?.name || data?.name);
+                setDisplayName(finalName);
+              }
+            }).catch(() => {});
             return;
           }
         } catch (err) {
@@ -576,11 +588,15 @@ export default function MyCardScreen() {
           setDisplayName(dName);
           setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
 
-          // Non-blocking: enrich avatar/name from slug endpoint
-          authApi.getCardSlug().then(({ data }) => {
-            if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
-            if (data?.name) setDisplayName(data.name);
-          }).catch(() => { });
+          // Enrich from public card endpoint
+          cardsApi.getPublicCard(tSlug, cSlug).then(({ data: cardRes }) => {
+            const card = cardRes?.card || cardRes;
+            if (card) {
+              if (card.profile_image) setAvatarUrl(resolveUrl(card.profile_image));
+              const finalName = (appLang === 'ar' && card.name_ar) ? card.name_ar : (card.name || user?.name);
+              setDisplayName(finalName);
+            }
+          }).catch(() => {});
           return;
         }
 
@@ -593,10 +609,20 @@ export default function MyCardScreen() {
             setTenantSlug(ts);
             setCardSlug(cs);
             setCardId(data?.card_id || user?.card_id || null);
-            const dName = (appLang === 'ar' && data?.name_ar) ? data.name_ar : (data?.name || user?.name || 'My Card');
+            const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || user?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
             setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}?lang=${appLang}`);
+
+            // Enrich from public card endpoint
+            cardsApi.getPublicCard(ts, cs).then(({ data: cardRes }) => {
+              const card = cardRes?.card || cardRes;
+              if (card) {
+                if (card.profile_image) setAvatarUrl(resolveUrl(card.profile_image));
+                const finalName = (appLang === 'ar' && card.name_ar) ? card.name_ar : (card.name || user?.name || data?.name);
+                setDisplayName(finalName);
+              }
+            }).catch(() => {});
           }
         } catch (err) {
           console.warn('[fetchCard card_user slug]', err?.response?.status, err?.message);
@@ -615,7 +641,7 @@ export default function MyCardScreen() {
         setCardId(cardData.id);
         setTenantSlug(tSlug);
         setCardSlug(cSlug);
-        const dName = (appLang === 'ar' && cardData.name_ar) ? cardData.name_ar : (cardData.name || user?.name || 'My Card');
+        const dName = (appLang === 'ar' && (cardData.name_ar || user?.name_ar)) ? (cardData.name_ar || user?.name_ar) : (cardData.name || user?.name || 'My Card');
         setDisplayName(dName);
         setAvatarUrl(resolveUrl(cardData.profile_image));
         if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
@@ -629,11 +655,12 @@ export default function MyCardScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user, token]);
+  }, [user, token, appLang]);
 
   useEffect(() => { fetchCard(); }, [fetchCard, appLang]);
 
   const pageBg = isAppDark ? '#0F172A' : '#F3F4F6';
+  const footerBg = isAppDark ? 'rgba(15,23,42,0.97)' : 'rgba(243,244,246,0.97)';
 
   return (
     <View style={{ flex: 1, backgroundColor: BRAND }}>
@@ -645,24 +672,12 @@ export default function MyCardScreen() {
           {avatarUrl
             ? <Image source={{ uri: avatarUrl }} style={s.menuAvatar} />
             : <View style={s.menuAvatarFallback}>
-              <Text style={s.menuAvatarText}>{(user?.name || 'U').charAt(0).toUpperCase()}</Text>
-            </View>}
+                <Text style={s.menuAvatarText}>{(displayName || user?.name || 'U').charAt(0).toUpperCase()}</Text>
+              </View>}
         </TouchableOpacity>
-        <Text style={s.topTitle} numberOfLines={1}>{displayName || 'My Card'}</Text>
-
+        <Text style={[s.topTitle, { textAlign: appLang === 'ar' ? 'right' : 'left' }]} numberOfLines={1}>{displayName || (appLang === 'ar' ? 'بطاقتي' : 'My Card')}</Text>
+        
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity
-            style={[s.logoutBtn, { marginRight: 12 }]}
-            onPress={handleBellPress}
-          >
-            <Ionicons
-              name={notifGranted ? 'notifications' : 'notifications-outline'}
-              size={22}
-              color="#fff"
-            />
-            {upcomingMeeting && <View style={s.badge} />}
-          </TouchableOpacity>
-
           <TouchableOpacity onPress={handleLogout} style={s.logoutBtn} hitSlop={10}>
             <Ionicons name="log-out-outline" size={22} color="#fff" />
           </TouchableOpacity>
@@ -675,51 +690,100 @@ export default function MyCardScreen() {
           <ActivityIndicator style={{ flex: 1 }} color={BRAND} size="large" />
         ) : cardUrl ? (
           <>
+            {/* WebView renders EXACTLY the same card as the public web page */}
             <WebView
+              key={cardUrl}
               source={{ uri: cardUrl }}
-              style={{ flex: 1, backgroundColor: pageBg }}
+              style={{ flex: 1, backgroundColor: 'transparent' }}
+              containerStyle={{ backgroundColor: 'transparent' }}
               startInLoadingState
+              onLoadStart={() => setWebLoading(true)}
+              onLoadEnd={() => setWebLoading(false)}
+              onMessage={handleMessage}
               renderLoading={() => (
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: pageBg }}>
+                <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: pageBg }]}>
                   <ActivityIndicator color={BRAND} size="large" />
                 </View>
               )}
-              onLoadEnd={() => {
-                const script = `
-                  (function() {
-                    var KEYWORDS = ['share details', 'share your details', 'save contact', 'download card', 'submit my details'];
-                    function hideShareUI() {
-                      document.querySelectorAll('button, [role="button"], a').forEach(function(el) {
-                        var t = (el.innerText || el.textContent || '').toLowerCase().trim();
-                        if (KEYWORDS.some(function(k) { return t.indexOf(k) !== -1; })) {
-                          el.style.setProperty('display', 'none', 'important');
-                          if (el.parentElement) el.parentElement.style.setProperty('display', 'none', 'important');
-                        }
-                      });
-                      document.querySelectorAll('div, section').forEach(function(el) {
-                        var t = (el.innerText || el.textContent || '').toLowerCase();
-                        if (t.indexOf('share your details') !== -1 || (t.indexOf('your name') !== -1 && t.indexOf('your email') !== -1 && t.indexOf('your phone') !== -1)) {
-                          el.style.setProperty('display', 'none', 'important');
-                        }
-                      });
+              // Inject CSS to remove the web page's own share/action buttons
+              // so the mobile native Share button handles sharing
+              injectedJavaScriptBeforeContentLoaded={`
+                (function() {
+                  // Safe DOM element injection helper to avoid early head null TypeErrors
+                  function injectDOM() {
+                    var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
+                    if (head) {
+                      // Ensure HTML/body occupies full screen width without margin/padding gaps
+                      var style = document.createElement('style');
+                      style.textContent = 'html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; overflow-x: hidden !important; } .space-y-2\\.5 { display: none !important; } body { -webkit-user-select: none; }';
+                      head.appendChild(style);
+
+                      // Set viewport scale to avoid side margins/scaling issues
+                      var meta = document.createElement('meta');
+                      meta.name = 'viewport';
+                      meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+                      head.appendChild(meta);
+                    } else {
+                      setTimeout(injectDOM, 50);
                     }
-                    hideShareUI();
-                    setInterval(hideShareUI, 300);
-                    new MutationObserver(hideShareUI).observe(document.documentElement, { childList: true, subtree: true });
-                  })();
-                  true;
-                `;
-                webviewRef.current?.injectJavaScript(script);
-              }}
+                  }
+                  injectDOM();
+
+                  // Double click/tap listener in capture phase on window
+                  var lastTap = 0;
+                  window.addEventListener('touchstart', function(e) {
+                    var currentTime = new Date().getTime();
+                    var tapLength = currentTime - lastTap;
+                    if (tapLength < 350 && tapLength > 0) {
+                      if (window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DOUBLE_TAP' }));
+                      }
+                    }
+                    lastTap = currentTime;
+                  }, true);
+
+                  var lastClick = 0;
+                  window.addEventListener('click', function(e) {
+                    var currentTime = new Date().getTime();
+                    var clickLength = currentTime - lastClick;
+                    if (clickLength < 350 && clickLength > 0) {
+                      if (window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DOUBLE_TAP' }));
+                      }
+                    }
+                    lastClick = currentTime;
+                  }, true);
+                })();
+                true;
+              `}
+              injectedJavaScript={`
+                (function() {
+                  // Hide the Share Details + Visit Website buttons after React renders
+                  function hideButtons() {
+                    var els = document.querySelectorAll('button, a[href]');
+                    els.forEach(function(el) {
+                      var t = el.textContent || '';
+                      if (t.includes('Share Details') || t.includes('Visit Website')) {
+                        el.style.display = 'none';
+                      }
+                    });
+                  }
+                  setTimeout(hideButtons, 800);
+                  setTimeout(hideButtons, 2000);
+                })();
+                true;
+              `}
               allowsFullscreenVideo={false}
               javaScriptEnabled
               domStorageEnabled
               setSupportMultipleWindows={false}
               onShouldStartLoadWithRequest={(req) => {
+                // Allow same-origin (digicards.ansoftt.com) and about:blank
                 if (!req.url || req.url === 'about:blank') return true;
                 const base = FRONTEND_BASE_URL.replace(/\/$/, '');
                 if (req.url.startsWith(base) || req.url.startsWith('https://digicards.ansoftt.com')) return true;
-                Linking.openURL(req.url).catch(() => { });
+                // Open external links (mailto, tel, https external) in device browser
+                Linking.openURL(req.url).catch(() => {});
                 return false;
               }}
             />
@@ -739,14 +803,20 @@ export default function MyCardScreen() {
           </View>
         )}
 
-        {/* ── Share button ── */}
-        {cardUrl ? (
-          <View style={s.footer}>
-            <TouchableOpacity style={s.shareBtn} onPress={() => setShareOpen(true)}>
-              <Ionicons name="paper-plane-outline" size={17} color="#fff" style={{ marginRight: 8 }} />
+        {/* ── Share button (native) ── */}
+        {cardUrl && layoutMode === 'footer' ? (
+          <View style={[s.footer, { backgroundColor: footerBg }]}>
+            <TouchableOpacity style={s.shareBtn} onPress={() => setShareOpen(true)} activeOpacity={0.85}>
+              <Ionicons name="share-social-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
               <Text style={s.shareBtnText}>{appLang === 'ar' ? 'مشاركة' : 'Share'}</Text>
             </TouchableOpacity>
           </View>
+        ) : null}
+
+        {cardUrl && layoutMode === 'fab' ? (
+          <TouchableOpacity style={s.fabShareBtn} onPress={() => setShareOpen(true)} activeOpacity={0.8}>
+            <Ionicons name="share-social-outline" size={24} color="#fff" />
+          </TouchableOpacity>
         ) : null}
       </View>
 
@@ -797,16 +867,33 @@ const s = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: BRAND,
   },
-  footer: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    paddingBottom: 24, paddingTop: 12, paddingHorizontal: 40,
-  },
   shareBtn: {
     backgroundColor: BRAND, borderRadius: 28, paddingVertical: 14,
     flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
   shareBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  footer: {
+    paddingBottom: 24,
+    paddingTop: 12,
+    paddingHorizontal: 40,
+  },
+  fabShareBtn: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: BRAND,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
 });
 
 const sh = StyleSheet.create({

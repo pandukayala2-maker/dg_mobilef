@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { authApi } from '@/services/api';
@@ -26,6 +28,14 @@ export default function LoginScreen() {
   const [tenantSlug, setTenantSlug] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const passwordRef = useRef(null);
+
+  const toggleShowPass = () => {
+    setShowPass((v) => !v);
+    setTimeout(() => {
+      passwordRef.current?.focus();
+    }, 50);
+  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password || !tenantSlug.trim()) {
@@ -52,70 +62,77 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        {/* Logo */}
-        <View style={styles.logoWrap}>
-          <Image
-            source={require('../../assets/appicon.png')}
-            style={styles.logoImg}
-            resizeMode="contain"
-          />
-          <Text style={styles.appName}>ANSOFTT DC</Text>
-          <Text style={styles.tagline}>Your digital business card</Text>
-        </View>
-
-        {/* Form */}
-        <View style={styles.form}>
-          <Text style={styles.label}>Workspace ID</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="your-workspace"
-            placeholderTextColor="#BBBBBB"
-            autoCapitalize="none"
-            returnKeyType="next"
-            value={tenantSlug}
-            onChangeText={setTenantSlug}
-          />
-
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="you@company.com"
-            placeholderTextColor="#BBBBBB"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            returnKeyType="next"
-            value={email}
-            onChangeText={setEmail}
-          />
-
-          <Text style={styles.label}>Password</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
-              placeholder="••••••••"
-              placeholderTextColor="#BBBBBB"
-              secureTextEntry={!showPass}
-              returnKeyType="done"
-              onSubmitEditing={handleLogin}
-              value={password}
-              onChangeText={setPassword}
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Logo */}
+          <View style={styles.logoWrap}>
+            <Image
+              source={require('../../assets/appicon.png')}
+              style={styles.logoImg}
+              resizeMode="contain"
             />
-            <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPass((v) => !v)}>
-              <Text style={styles.eyeText}>{showPass ? 'Hide' : 'Show'}</Text>
-            </TouchableOpacity>
+            <Text style={styles.appName}>ANSOFTT DC</Text>
+            <Text style={styles.tagline}>Your digital business card</Text>
           </View>
 
-          <TouchableOpacity style={styles.btn} onPress={handleLogin} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.btnText}>Sign in</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+          {/* Form */}
+          <View style={styles.form}>
+            <Text style={styles.label}>Workspace ID</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="your-workspace"
+              placeholderTextColor="#BBBBBB"
+              autoCapitalize="none"
+              returnKeyType="next"
+              value={tenantSlug}
+              onChangeText={setTenantSlug}
+            />
+
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="you@company.com"
+              placeholderTextColor="#BBBBBB"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              returnKeyType="next"
+              value={email}
+              onChangeText={setEmail}
+            />
+
+            <Text style={styles.label}>Password</Text>
+            <View style={styles.inputContainerRow}>
+              <TextInput
+                ref={passwordRef}
+                style={styles.inputField}
+                placeholder="••••••••"
+                placeholderTextColor="#BBBBBB"
+                secureTextEntry={!showPass}
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+                value={password}
+                onChangeText={setPassword}
+              />
+              <TouchableOpacity style={styles.eyeIconBtn} onPress={toggleShowPass}>
+                <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={20} color="#888" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.btn} onPress={handleLogin} disabled={loading}>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>Sign in</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -123,7 +140,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
-  container: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
+  container: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 28, paddingBottom: 40 },
   logoWrap: { alignItems: 'center', marginBottom: 44 },
   logoImg: {
     width: 80,
@@ -145,9 +162,25 @@ const styles = StyleSheet.create({
     color: '#1A1A1A',
     marginBottom: 4,
   },
-  passwordRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  eyeBtn: { paddingHorizontal: 10, paddingVertical: 13 },
-  eyeText: { fontSize: 13, color: BRAND, fontWeight: '600' },
+  inputContainerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7F7F7',
+    borderWidth: 1,
+    borderColor: '#EBEBEB',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  inputField: {
+    flex: 1,
+    paddingVertical: 13,
+    fontSize: 15,
+    color: '#1A1A1A',
+  },
+  eyeIconBtn: {
+    padding: 8,
+  },
   btn: {
     backgroundColor: BRAND,
     borderRadius: 12,

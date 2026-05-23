@@ -23,18 +23,30 @@ import { useRouter } from 'expo-router';
 import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
 import { API_BASE_URL, tokenStore } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
+import AddMeetingModal from '@/components/AddMeetingModal';
 
 const BRAND = '#1b4654';
 const NOTES_KEY_PREFIX = 'digcard_ai_notes';
 
 /* ─── Helpers ─── */
-function formatRelative(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  if (diff < 60000) return 'Just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  if (diff < 2 * 86400000) return 'Yesterday';
-  return new Date(dateStr).toLocaleDateString();
+function formatRelative(dateStr, isAR) {
+  try {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    if (isAR) {
+      if (diff < 60000) return 'الآن';
+      if (diff < 3600000) return `منذ ${Math.floor(diff / 60000)} دقيقة`;
+      if (diff < 86400000) return `منذ ${Math.floor(diff / 3600000)} ساعة`;
+      if (diff < 2 * 86400000) return 'أمس';
+      return new Date(dateStr).toLocaleDateString('ar-EG');
+    }
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    if (diff < 2 * 86400000) return 'Yesterday';
+    return new Date(dateStr).toLocaleDateString();
+  } catch {
+    return '';
+  }
 }
 
 function formatDuration(secs) {
@@ -85,7 +97,7 @@ function generateSummary(transcript) {
 }
 
 /* ═══════════════ Note Detail Modal ═══════════════ */
-function NoteDetailModal({ note, onClose }) {
+function NoteDetailModal({ note, onClose, onScheduleMeeting, isAR, brandColor }) {
   const [tab, setTab] = useState('summary');
   if (!note) return null;
   const ai = note.ai;
@@ -98,7 +110,7 @@ function NoteDetailModal({ note, onClose }) {
         {/* Header */}
         <View style={det.header}>
           <TouchableOpacity onPress={onClose} hitSlop={12}>
-            <Ionicons name="chevron-back" size={26} color={BRAND} />
+            <Ionicons name="chevron-back" size={26} color={brandColor} />
           </TouchableOpacity>
           <View style={det.headerRight}>
             <TouchableOpacity
@@ -114,7 +126,7 @@ function NoteDetailModal({ note, onClose }) {
                 }
               }}
             >
-              <Ionicons name="copy-outline" size={22} color={BRAND} />
+              <Ionicons name="copy-outline" size={22} color={brandColor} />
             </TouchableOpacity>
             <TouchableOpacity
               style={det.iconBtn}
@@ -124,7 +136,7 @@ function NoteDetailModal({ note, onClose }) {
                 );
               }}
             >
-              <Ionicons name="share-outline" size={22} color={BRAND} />
+              <Ionicons name="share-outline" size={22} color={brandColor} />
             </TouchableOpacity>
           </View>
         </View>
@@ -144,7 +156,7 @@ function NoteDetailModal({ note, onClose }) {
               style={[det.tabBtn, tab === 'summary' && det.tabBtnActive]}
               onPress={() => setTab('summary')}
             >
-              <Text style={[det.tabText, tab === 'summary' && det.tabTextActive]}>
+              <Text style={[det.tabText, tab === 'summary' && [det.tabTextActive, { color: brandColor }]]}>
                 Summary
               </Text>
             </TouchableOpacity>
@@ -152,7 +164,7 @@ function NoteDetailModal({ note, onClose }) {
               style={[det.tabBtn, tab === 'transcript' && det.tabBtnActive]}
               onPress={() => setTab('transcript')}
             >
-              <Text style={[det.tabText, tab === 'transcript' && det.tabTextActive]}>
+              <Text style={[det.tabText, tab === 'transcript' && [det.tabTextActive, { color: brandColor }]]}>
                 Transcript
               </Text>
             </TouchableOpacity>
@@ -163,10 +175,10 @@ function NoteDetailModal({ note, onClose }) {
             <View style={det.content}>
               {ai ? (
                 <>
-                  <View style={det.summaryCard}>
+                  <View style={[det.summaryCard, { borderLeftColor: brandColor }]}>
                     <View style={det.summaryBadge}>
-                      <Ionicons name="sparkles" size={14} color={BRAND} />
-                      <Text style={det.summaryBadgeText}>AI Summary</Text>
+                      <Ionicons name="sparkles" size={14} color={brandColor} />
+                      <Text style={[det.summaryBadgeText, { color: brandColor }]}>AI Summary</Text>
                     </View>
                     <Text style={det.summaryText}>{ai.summary}</Text>
                   </View>
@@ -215,6 +227,33 @@ function NoteDetailModal({ note, onClose }) {
               )}
             </View>
           )}
+
+          {/* Always accessible Schedule Calendar Button */}
+          <TouchableOpacity
+            style={[
+              {
+                flexDirection: isAR ? 'row-reverse' : 'row',
+                backgroundColor: brandColor,
+                borderRadius: 24,
+                paddingVertical: 14,
+                paddingHorizontal: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 20,
+                marginBottom: 10,
+                shadowColor: brandColor,
+                shadowOpacity: 0.2,
+                shadowRadius: 8,
+                elevation: 4,
+              }
+            ]}
+            onPress={() => onScheduleMeeting(note)}
+          >
+            <Ionicons name="calendar-outline" size={18} color="#fff" style={isAR ? { marginLeft: 8 } : { marginRight: 8 }} />
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>
+              {isAR ? 'جدولة هذا اللقاء في التقويم' : 'Schedule Meeting in Calendar'}
+            </Text>
+          </TouchableOpacity>
         </ScrollView>
       </SafeAreaView>
     </Modal>
@@ -469,7 +508,7 @@ import { useAppContext } from '@/context/AppContext';
 
 export default function AiNotetakerScreen() {
   const { logout, user, token } = useAuth();
-  const { isDark, language } = useAppContext();
+  const { isDark, language, brandColor } = useAppContext();
   const isAR = language === 'ar';
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -480,6 +519,72 @@ export default function AiNotetakerScreen() {
   const [recording, setRecording] = useState(false);
   const [typing, setTyping] = useState(false);
   const [selectedNote, setSelectedNote] = useState(null);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [meetingToSchedule, setMeetingToSchedule] = useState(null);
+
+  const combineDateAndTime = (dateStr, timeStr) => {
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return null;
+    
+    let hours = 0;
+    let minutes = 0;
+    
+    const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM|ص|م)?$/i);
+    if (timeMatch) {
+      hours = parseInt(timeMatch[1], 10);
+      minutes = parseInt(timeMatch[2], 10);
+      const ampm = timeMatch[3];
+      if (ampm) {
+        const lower = ampm.toLowerCase();
+        if ((lower === 'pm' || lower === 'م') && hours < 12) {
+          hours += 12;
+        }
+        if ((lower === 'am' || lower === 'ص') && hours === 12) {
+          hours = 0;
+        }
+      }
+    }
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  };
+
+  const handleSaveMeeting = async ({ title, dateStr, startTime, endTime, noteText }) => {
+    try {
+      const startDateTime = combineDateAndTime(dateStr, startTime);
+      const endDateTime = combineDateAndTime(dateStr, endTime);
+      
+      if (!startDateTime || !endDateTime) {
+        Alert.alert('Error', 'Failed to parse dates and times correctly.');
+        return;
+      }
+
+      const newMeeting = {
+        id: `local_${Date.now()}`,
+        title,
+        time: startDateTime.toISOString(),
+        startAt: startDateTime.toISOString(),
+        endAt: endDateTime.toISOString(),
+        noteText,
+        isLocal: true,
+      };
+
+      const localRaw = await AsyncStorage.getItem('mycard_local_meetings');
+      const localMeetings = localRaw ? JSON.parse(localRaw) : [];
+      const updated = [newMeeting, ...localMeetings];
+
+      await AsyncStorage.setItem('mycard_local_meetings', JSON.stringify(updated));
+      setScheduleModalOpen(false);
+      setMeetingToSchedule(null);
+
+      Alert.alert(
+        isAR ? 'تم الجدولة' : 'Scheduled',
+        isAR ? 'تم حفظ التذكير وجدولته بنجاح في التقويم!' : 'Reminder saved and scheduled in Calendar successfully!'
+      );
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Error', 'Could not save the reminder.');
+    }
+  };
 
   const handleLogout = () => {
     const performLogout = async () => {
@@ -740,14 +845,14 @@ export default function AiNotetakerScreen() {
   const textClr = isDark ? '#f8fafc' : '#111';
 
   return (
-    <SafeAreaView edges={['top']} style={styles.safeTop}>
+    <SafeAreaView edges={['top']} style={[styles.safeTop, { backgroundColor: brandColor }]}>
       <View style={[styles.safe, { backgroundColor: bg }]}>
-      <StatusBar barStyle="light-content" backgroundColor={BRAND} />
+      <StatusBar barStyle="light-content" backgroundColor={brandColor} />
 
       {/* Header */}
-      <View style={[styles.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}> 
-        <View style={[styles.headerLeft, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-          <Ionicons name="mic" size={20} color="#fff" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
+      <View style={[styles.header, { backgroundColor: brandColor }]}> 
+        <View style={styles.headerLeft}>
+          <Ionicons name="mic" size={20} color="#fff" style={{ marginEnd: 8 }} />
           <Text style={styles.headerTitle}>{isAR ? 'ملاحظات الذكاء الاصطناعي' : 'AI Notetaker'}</Text>
         </View>
         <TouchableOpacity onPress={handleLogout} hitSlop={10}>
@@ -780,7 +885,7 @@ export default function AiNotetakerScreen() {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <View style={[styles.emptyIcon, { backgroundColor: isDark ? '#1e3a47' : '#EDF5F3' }]}>
-              <Ionicons name="mic-outline" size={48} color={BRAND} />
+              <Ionicons name="mic-outline" size={48} color={brandColor} />
             </View>
             <Text style={[styles.emptyText, { color: isDark ? '#64748b' : '#999' }]}>No notes yet</Text>
             <Text style={[styles.emptySub, { color: isDark ? '#475569' : '#BBB' }]}>
@@ -828,8 +933,8 @@ export default function AiNotetakerScreen() {
                 </View>
               ) : item.ai ? (
                 <View style={[styles.badge, styles.badgeAI, { backgroundColor: isDark ? '#1e3a47' : '#EDF5F3' }]}>
-                  <Ionicons name="sparkles" size={12} color={BRAND} style={{ marginRight: isAR ? 0 : 3, marginLeft: isAR ? 3 : 0 }} />
-                  <Text style={styles.badgeAIText}>{isAR ? 'ملخص الذكاء الاصطناعي' : 'AI Summary'}</Text>
+                  <Ionicons name="sparkles" size={12} color={brandColor} style={{ marginRight: isAR ? 0 : 3, marginLeft: isAR ? 3 : 0 }} />
+                  <Text style={[styles.badgeAIText, { color: brandColor }]}>{isAR ? 'ملخص الذكاء الاصطناعي' : 'AI Summary'}</Text>
                 </View>
               ) : null}
             </View>
@@ -850,9 +955,9 @@ export default function AiNotetakerScreen() {
           onPress={() => setTyping(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="create-outline" size={22} color={isDark ? '#94a3b8' : BRAND} />
+          <Ionicons name="create-outline" size={22} color={isDark ? '#94a3b8' : brandColor} />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.takeNoteBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={() => setRecording(true)} activeOpacity={0.85}>
+        <TouchableOpacity style={[styles.takeNoteBtn, { flexDirection: isAR ? 'row-reverse' : 'row', backgroundColor: brandColor, shadowColor: brandColor }]} onPress={() => setRecording(true)} activeOpacity={0.85}>
           <Ionicons name="mic" size={22} color="#fff" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
           <Text style={styles.takeNoteBtnText}>{isAR ? 'تسجيل ملاحظة' : 'Record Note'}</Text>
         </TouchableOpacity>
@@ -874,8 +979,32 @@ export default function AiNotetakerScreen() {
         />
       )}
       {selectedNote && (
-        <NoteDetailModal note={selectedNote} onClose={() => setSelectedNote(null)} />
+        <NoteDetailModal
+          note={selectedNote}
+          onClose={() => setSelectedNote(null)}
+          onScheduleMeeting={(note) => {
+            setSelectedNote(null);
+            setMeetingToSchedule(note);
+            setScheduleModalOpen(true);
+          }}
+          isAR={isAR}
+          brandColor={brandColor}
+        />
       )}
+
+      <AddMeetingModal
+        visible={scheduleModalOpen}
+        onClose={() => {
+          setScheduleModalOpen(false);
+          setMeetingToSchedule(null);
+        }}
+        onSave={handleSaveMeeting}
+        initialTitle={meetingToSchedule?.title || ''}
+        initialNote={meetingToSchedule?.ai?.summary || meetingToSchedule?.transcript || ''}
+        isAR={isAR}
+        brandColor={brandColor}
+        isDark={isDark}
+      />
       </View>
     </SafeAreaView>
   );
@@ -1181,6 +1310,7 @@ function ManualNoteModal({ visible, onSave, onClose }) {
   const [text, setText] = useState('');
   const inputRef = useRef(null);
   const insets = useSafeAreaInsets();
+  const { brandColor } = useAppContext();
 
   useEffect(() => {
     if (visible) {
@@ -1202,7 +1332,7 @@ function ManualNoteModal({ visible, onSave, onClose }) {
             <Text style={mn.closeText}>Cancel</Text>
           </TouchableOpacity>
           <Text style={mn.title}>New Note</Text>
-          <TouchableOpacity onPress={handleSave} style={mn.saveBtn}>
+          <TouchableOpacity onPress={handleSave} style={[mn.saveBtn, { backgroundColor: brandColor }]}>
             <Text style={mn.saveText}>Save</Text>
           </TouchableOpacity>
         </View>
