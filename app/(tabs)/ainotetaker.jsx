@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  SectionList,
   TouchableOpacity,
   TextInput,
   Platform,
@@ -29,30 +29,52 @@ const BRAND = '#1b4654';
 const NOTES_KEY_PREFIX = 'digcard_ai_notes';
 
 /* ─── Helpers ─── */
-function formatRelative(dateStr, isAR) {
-  try {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    if (isAR) {
-      if (diff < 60000) return 'الآن';
-      if (diff < 3600000) return `منذ ${Math.floor(diff / 60000)} دقيقة`;
-      if (diff < 86400000) return `منذ ${Math.floor(diff / 3600000)} ساعة`;
-      if (diff < 2 * 86400000) return 'أمس';
-      return new Date(dateStr).toLocaleDateString('ar-EG');
-    }
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    if (diff < 2 * 86400000) return 'Yesterday';
-    return new Date(dateStr).toLocaleDateString();
-  } catch {
-    return '';
-  }
-}
-
 function formatDuration(secs) {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function formatNoteTime(dateStr) {
+  return new Date(dateStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+function groupNotesByDate(notes, isAR) {
+  const locale = isAR ? 'ar-SA' : undefined;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const groupMap = new Map();
+  const groupOrder = [];
+
+  for (const note of notes) {
+    const d = new Date(note.createdAt);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.round((todayStart - dayStart) / 86400000);
+
+    let key, title;
+    if (diffDays === 0) {
+      key = '__today';
+      title = isAR ? 'اليوم' : 'Today';
+    } else if (diffDays === 1) {
+      key = '__yesterday';
+      title = isAR ? 'أمس' : 'Yesterday';
+    } else if (diffDays <= 6) {
+      key = dayStart.toISOString();
+      title = dayStart.toLocaleDateString(locale, { weekday: 'long' });
+    } else {
+      key = dayStart.toISOString();
+      title = dayStart.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    if (!groupMap.has(key)) {
+      groupMap.set(key, { title, data: [] });
+      groupOrder.push(key);
+    }
+    groupMap.get(key).data.push(note);
+  }
+
+  return groupOrder.map(k => groupMap.get(k));
 }
 
 function generateSummary(transcript) {
@@ -840,6 +862,7 @@ export default function AiNotetakerScreen() {
   const filtered = notes.filter((n) =>
     n.title.toLowerCase().includes(search.toLowerCase())
   );
+  const sections = groupNotesByDate(filtered, isAR);
 
   const bg = isDark ? '#0f172a' : '#f8f9fa';
   const textClr = isDark ? '#f8fafc' : '#111';
@@ -878,22 +901,33 @@ export default function AiNotetakerScreen() {
       </View>
 
       {/* Notes list */}
-      <FlatList
-        data={filtered}
+      <SectionList
+        sections={sections}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        stickySectionHeadersEnabled
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <View style={[styles.emptyIcon, { backgroundColor: isDark ? '#1e3a47' : '#EDF5F3' }]}>
               <Ionicons name="mic-outline" size={48} color={brandColor} />
             </View>
-            <Text style={[styles.emptyText, { color: isDark ? '#64748b' : '#999' }]}>No notes yet</Text>
+            <Text style={[styles.emptyText, { color: isDark ? '#64748b' : '#999' }]}>
+              {isAR ? 'لا توجد ملاحظات بعد' : 'No notes yet'}
+            </Text>
             <Text style={[styles.emptySub, { color: isDark ? '#475569' : '#BBB' }]}>
-              Tap the button below to start recording.{'\n'}
-              Your speech is transcribed when recording ends.
+              {isAR
+                ? 'اضغط على الزر أدناه لبدء التسجيل.'
+                : 'Tap the button below to start recording.\nYour speech is transcribed when recording ends.'}
             </Text>
           </View>
         }
+        renderSectionHeader={({ section }) => (
+          <View style={[styles.sectionHeader, { backgroundColor: bg }]}>
+            <Text style={[styles.sectionHeaderText, { color: isDark ? '#94a3b8' : '#888', textAlign: isAR ? 'right' : 'left' }]}>
+              {section.title}
+            </Text>
+          </View>
+        )}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.noteItem, { backgroundColor: isDark ? '#1e293b' : '#fff' }]}
@@ -901,16 +935,13 @@ export default function AiNotetakerScreen() {
             activeOpacity={0.7}
           >
             <View style={[styles.noteHeader, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-              <Text style={styles.noteTime}>{formatRelative(item.createdAt)}</Text>
+              <Text style={styles.noteTime}>{formatNoteTime(item.createdAt)}</Text>
               <View style={[styles.noteHeaderRight, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
                 {item.duration ? (
                   <Text style={styles.noteDuration}>{formatDuration(item.duration)}</Text>
                 ) : null}
                 <TouchableOpacity
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    handleDeleteNote(item.id);
-                  }}
+                  onPress={(e) => { e?.stopPropagation?.(); handleDeleteNote(item.id); }}
                   onPressIn={(e) => e?.stopPropagation?.()}
                   hitSlop={8}
                   style={styles.deleteBtn}
@@ -919,7 +950,9 @@ export default function AiNotetakerScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-            <Text style={[styles.noteTitle, { color: textClr, textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>{item.title}</Text>
+            <Text style={[styles.noteTitle, { color: textClr, textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>
+              {item.title}
+            </Text>
             {item.transcript ? (
               <Text style={[styles.notePreview, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>
                 {item.transcript}
@@ -1081,6 +1114,18 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 11, color: '#888' },
   badgeAI: { backgroundColor: '#EDF5F3' },
   badgeAIText: { fontSize: 11, color: BRAND, fontWeight: '600' },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 6,
+  },
+  sectionHeaderText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#888',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
   separator: { height: 2 },
   emptyWrap: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 40 },
   emptyIcon: {

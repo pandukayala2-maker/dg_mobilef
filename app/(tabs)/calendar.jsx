@@ -23,34 +23,59 @@ const BRAND = '#1b4654';
 
 const deduplicateMeetings = (meetingsList) => {
   if (!Array.isArray(meetingsList)) return [];
-  const unique = [];
+  const pass1 = [];
   const seen = new Set();
-  
+
   for (const m of meetingsList) {
     if (!m) continue;
     const titleNormalized = String(m.title || '').trim().toLowerCase();
-    
+
     let datePart = '';
     if (m.time) {
-      const d = new Date(m.time);
-      if (!Number.isNaN(d.getTime())) {
-        if (m.allDay) {
-          datePart = d.toISOString().split('T')[0];
-        } else {
-          // Deduplicate timed events by grouping to the nearest minute
+      if (m.allDay) {
+        // Extract YYYY-MM-DD directly from the string to avoid UTC timezone shift
+        const match = String(m.time).match(/^(\d{4}-\d{2}-\d{2})/);
+        datePart = match ? match[1] : String(m.time).split('T')[0];
+      } else {
+        const d = new Date(m.time);
+        if (!Number.isNaN(d.getTime())) {
           datePart = String(Math.floor(d.getTime() / 60000));
         }
       }
     }
-    
-    // Key is combination of title and normalized date/time
+
     const key = `${titleNormalized}_${datePart}`;
     if (!seen.has(key)) {
       seen.add(key);
-      unique.push(m);
+      pass1.push(m);
     }
   }
-  return unique;
+
+  // Second pass: remove allDay events that are the "end-date echo" of another allDay event
+  // (same title, exactly 1 day later — iOS stores allDay endDate as next midnight)
+  const allDayMap = {};
+  for (const m of pass1) {
+    if (!m.allDay || !m.time) continue;
+    const title = String(m.title || '').trim().toLowerCase();
+    const match = String(m.time).match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!match) continue;
+    if (!allDayMap[title]) allDayMap[title] = [];
+    allDayMap[title].push(match[1]);
+  }
+
+  return pass1.filter((m) => {
+    if (!m.allDay || !m.time) return true;
+    const title = String(m.title || '').trim().toLowerCase();
+    const match = String(m.time).match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!match) return true;
+    const thisDate = new Date(match[1]);
+    const siblings = allDayMap[title] || [];
+    // Drop this entry if there's an earlier sibling exactly 1 day before
+    return !siblings.some((d) => {
+      const diff = thisDate - new Date(d);
+      return diff > 0 && diff <= 24 * 60 * 60 * 1000;
+    });
+  });
 };
 
 // Show notification alert even when app is in the foreground
@@ -76,16 +101,20 @@ export default function CalendarScreen() {
   const [deviceEventMap, setDeviceEventMap] = useState({});
   const [phoneCalendarPermission, setPhoneCalendarPermission] = useState('undetermined');
   const [showPhoneEvents, setShowPhoneEvents] = useState(true);
-  
+  const [showPast, setShowPast] = useState(false);
+
   // Custom states for interactive Month Calendar
   const [activeTab, setActiveTab] = useState('schedule'); // 'schedule' | 'sync'
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [filterMode, setFilterMode] = useState('selected'); // 'selected' | 'all'
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
-  
+
   const isAR = language === 'ar';
   const spinValue = useRef(new Animated.Value(0)).current;
+
+  // Track known meeting IDs to detect new ones on manual sync
+  const knownMeetingIds = useRef(null); // null = first load (no notification)
 
   // ─── 1. Spin Animation for Header Sync Icon ───────────────────────────────
   useEffect(() => {
@@ -122,9 +151,15 @@ export default function CalendarScreen() {
       });
     }
 
-    Notifications.getPermissionsAsync().then(({ status }) => {
-      setNotifGranted(status === 'granted');
-    });
+    (async () => {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status === 'granted') {
+        setNotifGranted(true);
+      } else {
+        const { status: newStatus } = await Notifications.requestPermissionsAsync();
+        setNotifGranted(newStatus === 'granted');
+      }
+    })();
 
     setCalendarPermission(false);
 
@@ -184,24 +219,41 @@ export default function CalendarScreen() {
           ? new Date(meeting.notificationAt)
           : new Date(new Date(meeting.time || Date.now()).getTime() - (15 * 60 * 1000));
 
-        if (Number.isNaN(targetDate.getTime()) || targetDate.getTime() <= Date.now()) {
-          continue;
-        }
-
         const startTimeStr = formatTimeOnly(meeting.startAt || meeting.time);
         const endTimeStr = formatTimeOnly(meeting.endAt);
         const timeRange = endTimeStr ? `${startTimeStr} - ${endTimeStr}` : startTimeStr;
         const bodyText = timeRange ? `${meeting.title} (${timeRange})` : meeting.title;
 
+        const notifContent = {
+          title: isAR ? '📅 تذكير باجتماع' : '📅 Meeting Reminder',
+          body: bodyText,
+          sound: true,
+          ...(Platform.OS === 'android' && { channelId: 'calendar-reminders' }),
+        };
+
+        if (Number.isNaN(targetDate.getTime()) || targetDate.getTime() <= Date.now()) {
+          // Reminder time already passed — fire immediately if meeting is within 30 min window
+          const meetingTime = new Date(meeting.time || meeting.startAt || 0);
+          const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+          if (meetingTime.getTime() >= thirtyMinAgo) {
+            await Notifications.scheduleNotificationAsync({
+              identifier: `meeting_${meeting.id}`,
+              content: notifContent,
+              trigger: null,
+            });
+            count++;
+          }
+          continue;
+        }
+
         await Notifications.scheduleNotificationAsync({
           identifier: `meeting_${meeting.id}`,
-          content: {
-            title: isAR ? '📅 تذكير باجتماع' : '📅 Meeting Reminder',
-            body: bodyText,
-            sound: true,
+          content: notifContent,
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: targetDate,
             ...(Platform.OS === 'android' && { channelId: 'calendar-reminders' }),
           },
-          trigger: targetDate,
         });
         count++;
       } catch (err) {
@@ -219,6 +271,36 @@ export default function CalendarScreen() {
     scheduleReminders(meetings).then(setReminderCount);
   }, [meetings, notifGranted, scheduleReminders]);
 
+  const sendTestNotification = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    if (!notifGranted) {
+      const { status } = await Notifications.requestPermissionsAsync();
+      setNotifGranted(status === 'granted');
+      if (status !== 'granted') {
+        Alert.alert(
+          isAR ? 'الإذن مرفوض' : 'Permission Denied',
+          isAR
+            ? 'يرجى تفعيل الإشعارات من إعدادات الهاتف.'
+            : 'Please enable notifications in your phone settings.',
+          [
+            { text: isAR ? 'إلغاء' : 'Cancel', style: 'cancel' },
+            { text: isAR ? 'فتح الإعدادات' : 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
+    }
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: isAR ? '✅ الإشعارات تعمل!' : '✅ Notifications are working!',
+        body: isAR ? 'ستصلك تذكيرات الاجتماعات هكذا.' : 'Meeting reminders will look like this.',
+        sound: true,
+        ...(Platform.OS === 'android' && { channelId: 'calendar-reminders' }),
+      },
+      trigger: null, // fires immediately
+    });
+  }, [notifGranted, isAR]);
+
   // ─── 4. Fetch meetings from backend ───────────────────────────────────────
   const fetchMeetings = useCallback(async (showSyncing = false) => {
     if (showSyncing) setSyncing(true);
@@ -226,6 +308,23 @@ export default function CalendarScreen() {
       // 1. Fetch backend meetings
       const { data } = await cardsApi.getMeetings();
       const backendMeetings = data.meetings || [];
+
+      // Fire immediate in-app notification for any newly detected backend meetings
+      if (showSyncing && knownMeetingIds.current !== null && notifGranted && Platform.OS !== 'web') {
+        const newOnes = backendMeetings.filter(m => !knownMeetingIds.current.has(String(m.id)));
+        for (const m of newOnes) {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: isAR ? '📅 اجتماع جديد تمت إضافته' : '📅 New Meeting Added',
+              body: m.title,
+              sound: true,
+              ...(Platform.OS === 'android' && { channelId: 'calendar-reminders' }),
+            },
+            trigger: null,
+          });
+        }
+      }
+      knownMeetingIds.current = new Set(backendMeetings.map(m => String(m.id)));
 
       // 2. Fetch local meetings
       const localRaw = await AsyncStorage.getItem('mycard_local_meetings');
@@ -237,7 +336,7 @@ export default function CalendarScreen() {
         try {
           const perm = await checkCalendarPermission();
           setPhoneCalendarPermission(perm.status);
-          
+
           if (perm.status === 'granted') {
             const startDate = new Date();
             startDate.setMonth(startDate.getMonth() - 3);
@@ -310,15 +409,15 @@ export default function CalendarScreen() {
       setLoading(false);
       if (showSyncing) setSyncing(false);
     }
-  }, [isAR, showPhoneEvents]);
+  }, [isAR, showPhoneEvents, notifGranted]);
 
   const combineDateAndTime = (dateStr, timeStr) => {
     const date = new Date(dateStr);
     if (Number.isNaN(date.getTime())) return null;
-    
+
     let hours = 0;
     let minutes = 0;
-    
+
     const timeMatch = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM|ص|م)?$/i);
     if (timeMatch) {
       hours = parseInt(timeMatch[1], 10);
@@ -338,15 +437,22 @@ export default function CalendarScreen() {
     return date;
   };
 
-  const handleSaveMeeting = async ({ title, dateStr, startTime, endTime, noteText }) => {
+  const handleSaveMeeting = async ({ title, dateStr, startTime, endTime, noteText, reminderOffset }) => {
     try {
       const startDateTime = combineDateAndTime(dateStr, startTime);
       const endDateTime = combineDateAndTime(dateStr, endTime);
-      
+
       if (!startDateTime || !endDateTime) {
         Alert.alert('Error', 'Failed to parse dates and times correctly.');
         return;
       }
+
+      const offsetMs = (typeof reminderOffset === 'number' ? reminderOffset : 10) * 60 * 1000;
+      const rawNotifyAt = new Date(startDateTime.getTime() - offsetMs);
+      // If reminder time already passed, fire 5 seconds after saving instead
+      const notificationAt = rawNotifyAt.getTime() <= Date.now()
+        ? new Date(Date.now() + 5000)
+        : rawNotifyAt;
 
       const newMeeting = {
         id: `local_${Date.now()}`,
@@ -354,6 +460,7 @@ export default function CalendarScreen() {
         time: startDateTime.toISOString(),
         startAt: startDateTime.toISOString(),
         endAt: endDateTime.toISOString(),
+        notificationAt: notificationAt.toISOString(),
         noteText,
         isLocal: true,
       };
@@ -383,7 +490,7 @@ export default function CalendarScreen() {
         let localMeetings = localRaw ? JSON.parse(localRaw) : [];
         localMeetings = localMeetings.filter(m => m.id !== meetingId);
         await AsyncStorage.setItem('mycard_local_meetings', JSON.stringify(localMeetings));
-        
+
         await fetchMeetings();
       } catch (err) {
         Alert.alert('Error', 'Could not delete local meeting.');
@@ -642,6 +749,12 @@ export default function CalendarScreen() {
     return { date: dateStr, time: `${h}:${m}`, ampm };
   };
 
+  // ─── 5. Split upcoming vs past ────────────────────────────────────────────
+  const now = new Date();
+  const upcomingMeetings = meetings.filter(m => new Date(m.time) > now);
+  const pastMeetings     = meetings.filter(m => new Date(m.time) <= now)
+                                   .sort((a, b) => new Date(b.time) - new Date(a.time));
+
   // ─── 6. Theme tokens ──────────────────────────────────────────────────────
   const bg      = isDark ? '#0F172A' : '#F8FAFC';
   const cardBg  = isDark ? '#1E293B' : '#FFFFFF';
@@ -700,13 +813,6 @@ export default function CalendarScreen() {
               <Ionicons name="refresh" size={22} color="#fff" />
             </Animated.View>
           </TouchableOpacity>
-
-          {notifGranted && reminderCount > 0 && (
-            <View style={styles.headerBadge}>
-              <Ionicons name="notifications" size={13} color="#fff" />
-              <Text style={styles.headerBadgeText}>{reminderCount}</Text>
-            </View>
-          )}
         </View>
       </View>
 
@@ -741,11 +847,11 @@ export default function CalendarScreen() {
                 <TouchableOpacity onPress={() => changeMonth(-1)} style={[styles.monthArrow, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9' }]}>
                   <Ionicons name={isAR ? "chevron-forward" : "chevron-back"} size={20} color={text} />
                 </TouchableOpacity>
-                
+
                 <Text style={[styles.monthLabel, { color: text }]}>
                   {getMonthName(currentMonth)} {currentMonth.getFullYear()}
                 </Text>
-                
+
                 <TouchableOpacity onPress={() => changeMonth(1)} style={[styles.monthArrow, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9' }]}>
                   <Ionicons name={isAR ? "chevron-back" : "chevron-forward"} size={20} color={text} />
                 </TouchableOpacity>
@@ -1037,43 +1143,45 @@ export default function CalendarScreen() {
               </TouchableOpacity>
 
               {/* Status block */}
-              {(meetings.length > 0 || (Platform.OS !== 'web' && !notifGranted)) && (
-                <View style={[styles.statusBlock, { borderTopColor: divider }]}>
-                  {meetings.length > 0 && (
-                    <View style={styles.statusRow}>
-                      <Ionicons name="checkmark-circle" size={15} color="#22C55E" />
-                      <Text style={[styles.statusText, { color: '#22C55E' }]}>
-                        {meetings.length}{' '}
-                        {isAR
-                          ? 'اجتماع متزامن'
-                          : `meeting${meetings.length !== 1 ? 's' : ''} synced`}
-                      </Text>
-                    </View>
-                  )}
-
-                  {notifGranted && reminderCount > 0 && (
-                    <View style={styles.statusRow}>
-                      <Ionicons name="notifications" size={15} color="#F59E0B" />
-                      <Text style={[styles.statusText, { color: '#F59E0B' }]}>
-                        {isAR
-                          ? `${reminderCount} إشعار مجدول لغداً الساعة 9 ص`
-                          : `${reminderCount} reminder${reminderCount !== 1 ? 's' : ''} scheduled`}
-                      </Text>
-                    </View>
-                  )}
-
-                  {!notifGranted && Platform.OS !== 'web' && (
-                    <View style={styles.statusRow}>
-                      <Ionicons name="notifications-off-outline" size={15} color="#94A3B8" />
-                      <Text style={[styles.statusText, { color: '#94A3B8' }]}>
-                        {isAR
-                          ? 'فعّل الإشعارات للحصول على تذكيرات تلقائية'
-                          : 'Enable notifications to receive automatic reminders'}
-                      </Text>
-                    </View>
-                  )}
+              <View style={[styles.statusBlock, { borderTopColor: divider }]}>
+                {/* Meetings synced */}
+                <View style={styles.statusRow}>
+                  <Ionicons
+                    name={meetings.length > 0 ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={15}
+                    color={meetings.length > 0 ? '#22C55E' : subtext}
+                  />
+                  <Text style={[styles.statusText, { color: meetings.length > 0 ? '#22C55E' : subtext }]}>
+                    {meetings.length > 0
+                      ? `${meetings.length} ${isAR ? 'اجتماع متزامن' : `meeting${meetings.length !== 1 ? 's' : ''} synced`}`
+                      : (isAR ? 'لا توجد اجتماعات' : 'No meetings yet')}
+                  </Text>
                 </View>
-              )}
+
+                {/* Notification status */}
+                {Platform.OS !== 'web' && (
+                  <View style={styles.statusRow}>
+                    <Ionicons
+                      name={notifGranted ? 'notifications' : 'notifications-off-outline'}
+                      size={15}
+                      color={notifGranted ? '#F59E0B' : '#EF4444'}
+                    />
+                    {notifGranted ? (
+                      <Text style={[styles.statusText, { color: '#F59E0B' }]}>
+                        {reminderCount > 0
+                          ? `${reminderCount} ${isAR ? 'تذكير مجدول' : `reminder${reminderCount !== 1 ? 's' : ''} scheduled`}`
+                          : (isAR ? 'الإشعارات مفعّلة' : 'Notifications enabled')}
+                      </Text>
+                    ) : (
+                      <TouchableOpacity onPress={sendTestNotification} style={{ flex: 1 }}>
+                        <Text style={[styles.statusText, { color: '#EF4444', textDecorationLine: 'underline' }]}>
+                          {isAR ? 'اضغط لتفعيل الإشعارات' : 'Tap to enable notifications'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
             </View>
 
             {/* Phone Calendar Sync Card (Mobile only) */}

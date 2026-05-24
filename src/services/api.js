@@ -84,6 +84,7 @@ export const cardsApi = {
   getWalletPass: (id) => api.get(`/cards/wallet/create-pass/${id}`),
   getPublicCard: (tenantSlug, cardSlug) => api.get(`/public/card/${tenantSlug}/${cardSlug}`),
   getPublicWalletPass: (tenantSlug, cardSlug) => api.post(`/public/card/wallet/${tenantSlug}/${cardSlug}`),
+
   getMeetings: () => api.get('/cards/calendar/meetings'),
 };
 

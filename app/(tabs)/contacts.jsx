@@ -70,6 +70,118 @@ function formatRelative(dateStr) {
   return `${Math.floor(diff / 86400000)} days ago`;
 }
 
+/* ─── Contact Detail Bottom Sheet ─── */
+function ContactDetailSheet({ contact, onClose, isDark }) {
+  if (!contact) return null;
+
+  const name = contact.visitor_name || 'Unknown';
+  const initials = getInitials(name);
+  const avatarColor = getAvatarColor(name);
+
+  const rows = [
+    contact.email && { icon: 'mail', label: contact.email, action: `mailto:${contact.email}` },
+    contact.phone && { icon: 'call', label: contact.phone, action: `tel:${contact.phone}` },
+  ].filter(Boolean);
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={cs.overlay}>
+        <TouchableOpacity
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={[cs.sheet, { backgroundColor: isDark ? '#1E293B' : '#fff' }]}>
+          {/* Drag handle */}
+          <View style={cs.handle} />
+
+          {/* Close button */}
+          <TouchableOpacity style={cs.closeBtn} onPress={onClose}>
+            <Ionicons name="close" size={20} color="#fff" />
+          </TouchableOpacity>
+
+          <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+            {/* Profile card */}
+            <View style={[cs.profileCard, { backgroundColor: isDark ? '#0F172A' : '#F8F9FA' }]}>
+              <View style={[cs.avatar, { backgroundColor: avatarColor }]}>
+                <Text style={cs.avatarText}>{initials}</Text>
+              </View>
+              <Text style={[cs.nameText, { color: isDark ? '#F8FAFC' : '#111' }]}>{name}</Text>
+              {contact.action_type ? (
+                <Text style={cs.roleText}>
+                  {contact.action_type.replace(/_/g, ' ')}
+                </Text>
+              ) : null}
+              <Text style={cs.capturedText}>{formatRelative(contact.created_at)}</Text>
+            </View>
+
+            {/* Contact rows */}
+            {rows.length > 0 && (
+              <View style={[cs.rowsWrap, { backgroundColor: isDark ? '#1E293B' : '#fff' }]}>
+                {rows.map((row, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[cs.row, i < rows.length - 1 && cs.rowBorder]}
+                    onPress={() => Linking.openURL(row.action).catch(() => {})}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[cs.rowIcon, { backgroundColor: CORAL }]}>
+                      <Ionicons name={row.icon} size={18} color="#fff" />
+                    </View>
+                    <View style={cs.rowInfo}>
+                      <Text style={[cs.rowLabel, { color: isDark ? '#F8FAFC' : '#111' }]}>{row.label}</Text>
+                      <Text style={cs.rowSub}>{row.label}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#CCC" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Actions */}
+            <View style={cs.actions}>
+              <TouchableOpacity
+                style={cs.shareBtn}
+                onPress={() => {
+                  const text = [name, contact.email, contact.phone].filter(Boolean).join('\n');
+                  Share.share({ message: text });
+                }}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="share-social" size={20} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={cs.shareBtnText}>Share Details</Text>
+              </TouchableOpacity>
+
+              <View style={cs.secondRow}>
+                {contact.phone ? (
+                  <TouchableOpacity
+                    style={[cs.actionBtn, { backgroundColor: isDark ? '#0F172A' : '#F1F5F9' }]}
+                    onPress={() => Linking.openURL(`tel:${contact.phone}`).catch(() => {})}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="call-outline" size={20} color={CORAL} style={{ marginRight: 6 }} />
+                    <Text style={[cs.actionBtnText, { color: CORAL }]}>Call</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {contact.email ? (
+                  <TouchableOpacity
+                    style={[cs.actionBtn, { backgroundColor: isDark ? '#0F172A' : '#F1F5F9' }]}
+                    onPress={() => Linking.openURL(`mailto:${contact.email}`).catch(() => {})}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="mail-outline" size={20} color={CORAL} style={{ marginRight: 6 }} />
+                    <Text style={[cs.actionBtnText, { color: CORAL }]}>Email</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function ContactsScreen() {
   const { user, logout } = useAuth();
   const { isDark, language, brandColor } = useAppContext();
@@ -89,6 +201,7 @@ export default function ContactsScreen() {
   const [newPhone, setNewPhone] = useState('');
   const [newNotes, setNewNotes] = useState('');
   const [selectedCountryCode, setSelectedCountryCode] = useState('+965');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [adding, setAdding] = useState(false);
 
   // Contact Detail Modal State
@@ -405,7 +518,7 @@ END:VCARD`;
           renderItem={({ item }) => {
             const name = item.visitor_name || (isAR ? 'غير معروف' : 'Unknown');
             return (
-              <TouchableOpacity 
+              <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={() => {
                   setSelectedContact(item);
@@ -468,6 +581,15 @@ END:VCARD`;
         <Ionicons name="add" size={32} color="#fff" />
       </TouchableOpacity>
 
+      {/* Contact Detail Sheet */}
+      {selectedContact && (
+        <ContactDetailSheet
+          contact={selectedContact}
+          onClose={() => setSelectedContact(null)}
+          isDark={isDark}
+        />
+      )}
+
       {/* Add Contact Modal */}
       <Modal
         visible={showAddModal}
@@ -504,7 +626,7 @@ END:VCARD`;
                 <Text style={[styles.inputLabel, { color: subtext }]}>{isAR ? 'البريد الإلكتروني' : 'EMAIL ADDRESS'}</Text>
                 <TextInput 
                   style={[styles.input, { backgroundColor: bg, borderColor: border, color: text, textAlign: isAR ? 'right' : 'left', width: '100%' }]}
-                  placeholder="john@example.com"
+                  placeholder={isAR ? "example@email.com" : "example@email.com"}
                   placeholderTextColor={subtext}
                   value={newEmail}
                   onChangeText={setNewEmail}
@@ -516,26 +638,31 @@ END:VCARD`;
               <View style={[styles.inputGroup, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
                 <Text style={[styles.inputLabel, { color: subtext }]}>{isAR ? 'رقم الهاتف' : 'PHONE NUMBER'}</Text>
                 <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', alignItems: 'center', width: '100%', gap: 8 }}>
-                  {/* Selected Country Flag & Code Display */}
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: bg,
-                    borderWidth: 1.5,
-                    borderColor: border,
-                    borderRadius: 16,
-                    paddingHorizontal: 12,
-                    height: 54,
-                    gap: 6
-                  }}>
+                  {/* Country Code Dropdown Button */}
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => setShowCountryDropdown(!showCountryDropdown)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: bg,
+                      borderWidth: 1.5,
+                      borderColor: showCountryDropdown ? brandColor : border,
+                      borderRadius: 16,
+                      paddingHorizontal: 12,
+                      height: 54,
+                      gap: 6
+                    }}
+                  >
                     <Text style={{ fontSize: 18 }}>
                       {COUNTRIES.find(c => c.code === selectedCountryCode)?.flag || '🏳️'}
                     </Text>
                     <Text style={{ fontSize: 15, color: text, fontWeight: '700' }}>
                       {selectedCountryCode}
                     </Text>
-                  </View>
+                    <Ionicons name={showCountryDropdown ? 'chevron-up' : 'chevron-down'} size={16} color={subtext} />
+                  </TouchableOpacity>
 
                   {/* Rest of Phone Number Input */}
                   <TextInput 
@@ -548,37 +675,52 @@ END:VCARD`;
                   />
                 </View>
 
-                {/* Country Quick Picker scroll list */}
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 6, paddingVertical: 4 }}
-                  style={{ marginTop: 2, width: '100%' }}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {COUNTRIES.map((c) => (
-                    <TouchableOpacity
-                      key={c.code}
-                      onPress={() => setSelectedCountryCode(c.code)}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        backgroundColor: selectedCountryCode === c.code ? brandColor : (isDark ? '#334155' : '#F1F5F9'),
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderRadius: 20,
-                        borderWidth: 1,
-                        borderColor: selectedCountryCode === c.code ? brandColor : border,
-                        gap: 4
-                      }}
-                    >
-                      <Text style={{ fontSize: 13 }}>{c.flag}</Text>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: selectedCountryCode === c.code ? '#fff' : text }}>
-                        {c.code}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                {/* Country Code Dropdown List */}
+                {showCountryDropdown && (
+                  <View style={{
+                    marginTop: 8,
+                    backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+                    borderWidth: 1.5,
+                    borderColor: border,
+                    borderRadius: 14,
+                    overflow: 'hidden',
+                    width: '100%',
+                  }}>
+                    {COUNTRIES.map((c) => {
+                      const isActive = selectedCountryCode === c.code;
+                      return (
+                        <TouchableOpacity
+                          key={c.code}
+                          onPress={() => {
+                            setSelectedCountryCode(c.code);
+                            setShowCountryDropdown(false);
+                          }}
+                          style={{
+                            flexDirection: isAR ? 'row-reverse' : 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 16,
+                            paddingVertical: 12,
+                            backgroundColor: isActive ? (isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9') : 'transparent',
+                            borderBottomWidth: 1,
+                            borderBottomColor: isDark ? '#334155' : '#F1F5F9',
+                            gap: 12,
+                          }}
+                        >
+                          <Text style={{ fontSize: 20 }}>{c.flag}</Text>
+                          <Text style={{ fontSize: 14, fontWeight: '600', color: text, flex: 1, textAlign: isAR ? 'right' : 'left' }}>
+                            {c.name}
+                          </Text>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: isActive ? brandColor : subtext }}>
+                            {c.code}
+                          </Text>
+                          {isActive && (
+                            <Ionicons name="checkmark-circle" size={18} color={brandColor} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
 
               <View style={[styles.inputGroup, { alignItems: isAR ? 'flex-end' : 'flex-start', marginTop: 4 }]}>
@@ -969,4 +1111,82 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
+});
+
+/* ─── Contact Detail Sheet Styles ─── */
+const cs = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    maxHeight: '88%',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -6 },
+    elevation: 24,
+  },
+  handle: {
+    width: 40, height: 4, backgroundColor: '#CBD5E1',
+    borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4,
+  },
+  closeBtn: {
+    position: 'absolute', top: 16, right: 16, zIndex: 10,
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: CORAL, justifyContent: 'center', alignItems: 'center',
+  },
+  profileCard: {
+    alignItems: 'center',
+    paddingTop: 24, paddingBottom: 20, paddingHorizontal: 24,
+    borderRadius: 20, margin: 16, marginTop: 12,
+  },
+  avatar: {
+    width: 80, height: 80, borderRadius: 40,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 14,
+    borderWidth: 3, borderColor: '#fff',
+    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, elevation: 4,
+  },
+  avatarText: { color: '#fff', fontWeight: '800', fontSize: 28 },
+  nameText: { fontSize: 22, fontWeight: '800', marginBottom: 4, textAlign: 'center' },
+  roleText: { fontSize: 13, color: '#888', textTransform: 'capitalize', marginBottom: 2 },
+  capturedText: { fontSize: 12, color: '#AAA', marginTop: 4 },
+  rowsWrap: {
+    marginHorizontal: 16, marginBottom: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E5E7EB',
+  },
+  row: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 14, paddingHorizontal: 16,
+  },
+  rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB' },
+  rowIcon: {
+    width: 44, height: 44, borderRadius: 22,
+    justifyContent: 'center', alignItems: 'center', marginRight: 14,
+  },
+  rowInfo: { flex: 1 },
+  rowLabel: { fontSize: 15, fontWeight: '600' },
+  rowSub: { fontSize: 12, color: '#999', marginTop: 2 },
+  actions: { paddingHorizontal: 16, gap: 10 },
+  shareBtn: {
+    backgroundColor: CORAL, borderRadius: 14, paddingVertical: 16,
+    flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+    shadowColor: CORAL, shadowOpacity: 0.3, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+  },
+  shareBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  secondRow: { flexDirection: 'row', gap: 10 },
+  actionBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderRadius: 14, paddingVertical: 14,
+  },
+  actionBtnText: { fontSize: 15, fontWeight: '600' },
 });

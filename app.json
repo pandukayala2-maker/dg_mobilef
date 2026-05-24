@@ -81,7 +81,10 @@
           "color": "#1b4654",
           "defaultChannel": "calendar-reminders"
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-audio",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

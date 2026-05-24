@@ -47,7 +47,7 @@ export const AppProvider = ({ children }) => {
     // Set RTL configuration so the next app start loads in the correct layout natively
     const isRTL = lang === 'ar';
     I18nManager.forceRTL(isRTL);
-    
+
     // Force immediate app reload to apply LTR/RTL switch natively
     setTimeout(() => {
       if (__DEV__) {

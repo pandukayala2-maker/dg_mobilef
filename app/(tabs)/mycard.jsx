@@ -30,7 +30,7 @@ import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL } from '@/services/api';
+import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL, tokenStore } from '@/services/api';
 import { useAppContext } from '@/context/AppContext';
 
 const BRAND = '#1b4654';
@@ -56,13 +56,19 @@ const parseDigCardPath = (value) => {
 
 /* ─── Sidebar Drawer ─── */
 function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
-  const translateX = useState(new Animated.Value(-SCREEN_WIDTH * 0.75))[0];
   const { isDark, toggleTheme, language, changeLanguage } = useAppContext();
-  const insets = useSafeAreaInsets();
+  const isRTL = language === 'ar';
+  const hiddenOffset = -SCREEN_WIDTH * 0.78;
+  const translateX = useState(new Animated.Value(hiddenOffset))[0];
+
+  // Reset to correct side whenever direction changes while drawer is closed
+  useEffect(() => {
+    if (!visible) translateX.setValue(hiddenOffset);
+  }, [isRTL]);
 
   useEffect(() => {
     Animated.timing(translateX, {
-      toValue: visible ? 0 : -SCREEN_WIDTH * 0.75,
+      toValue: visible ? 0 : hiddenOffset,
       duration: 260,
       useNativeDriver: Platform.OS !== 'web',
     }).start();
@@ -78,79 +84,102 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
   const subtext = isDark ? '#94A3B8' : '#64748B';
   const divider = isDark ? '#334155' : '#F0F0F0';
 
+  const panelPos = { left: 0 };
+  const rowDir = 'row';
+  const iconMargin = { marginRight: 14 };
+  const txtAlign = 'left';
+
   return (
     <Modal transparent animationType="none" onRequestClose={onClose}>
       <TouchableOpacity style={sd.backdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View style={[sd.panel, { transform: [{ translateX }], backgroundColor: bg }]}>
-        <View style={{ flex: 1, paddingBottom: Math.max(insets.bottom, 16) }}>
-          <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
-            <View style={[sd.profileSection, { paddingTop: insets.top + 20, alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
+      <Animated.View style={[sd.panel, panelPos, { transform: [{ translateX }], shadowOffset: { width: isRTL ? -4 : 4, height: 0 } }]}>
+        {/* SafeAreaView bg = BRAND so status-bar inset area matches profile header */}
+        <SafeAreaView style={{ flex: 1, backgroundColor: BRAND }}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            style={{ backgroundColor: bg }}
+            contentContainerStyle={{ flexGrow: 1 }}
+          >
+            {/* Profile */}
+            <View style={[sd.profileSection, { alignItems: isRTL ? 'flex-end' : 'flex-start', backgroundColor: BRAND }]}>
               {avatarUrl
                 ? <Image source={{ uri: avatarUrl }} style={sd.avatar} />
                 : <View style={[sd.avatar, sd.avatarFallback]}>
                     <Text style={sd.avatarInitial}>{initials}</Text>
                   </View>}
-              <Text style={[sd.name, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={1}>{displayName}</Text>
-              <Text style={[sd.email, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={1}>{user?.email || ''}</Text>
+              <Text style={[sd.name, { textAlign: txtAlign }]} numberOfLines={1}>{displayName}</Text>
+              <Text style={[sd.email, { textAlign: txtAlign }]} numberOfLines={1}>{user?.email || ''}</Text>
             </View>
 
             <View style={[sd.divider, { backgroundColor: divider }]} />
 
             <View style={sd.menu}>
-              <TouchableOpacity style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={onClose}>
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#EDF5F3', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
-                  <Text style={{ fontSize: 16 }}>💳</Text>
+              {/* My Card */}
+              <TouchableOpacity style={[sd.menuItem, { flexDirection: rowDir }]} onPress={onClose}>
+                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#EDF5F3' }]}>
+                  <Ionicons name="card-outline" size={20} color={isDark ? '#4DD0E1' : BRAND} />
                 </View>
-                <Text style={[sd.menuLabel, { color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'بطاقتي' : 'My Card'}</Text>
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: txtAlign }]}>
+                  {language === 'ar' ? 'بطاقتي' : 'My Card'}
+                </Text>
               </TouchableOpacity>
 
-              <View style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(0,96,100,0.2)' : '#E0F7FA', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
+              {/* Language */}
+              <View style={[sd.menuItem, { flexDirection: rowDir }]}>
+                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isDark ? 'rgba(0,96,100,0.2)' : '#E0F7FA' }]}>
                   <Ionicons name="language-outline" size={20} color={isDark ? '#4DD0E1' : '#006064'} />
                 </View>
-                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'اللغة' : 'Language'}</Text>
-                <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', alignItems: 'center', backgroundColor: isDark ? '#334155' : '#F1F5F9', borderRadius: 20, padding: 4 }}>
-                  <TouchableOpacity
-                    onPress={() => changeLanguage('en')}
-                    style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: language === 'en' ? (isDark ? '#1E293B' : '#fff') : 'transparent', borderRadius: 16 }}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: language === 'en' ? (isDark ? '#fff' : BRAND) : subtext }}>EN</Text>
-                  </TouchableOpacity>
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: txtAlign }]}>
+                  {language === 'ar' ? 'اللغة' : 'Language'}
+                </Text>
+                <View style={[sd.langToggle, { backgroundColor: isDark ? '#334155' : '#F1F5F9' }]}>
                   <TouchableOpacity
                     onPress={() => changeLanguage('ar')}
-                    style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: language === 'ar' ? (isDark ? '#1E293B' : '#fff') : 'transparent', borderRadius: 16 }}
+                    style={[sd.langBtn, language === 'ar' && { backgroundColor: isDark ? '#1E293B' : '#fff' }]}
                   >
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: language === 'ar' ? (isDark ? '#fff' : BRAND) : subtext }}>ع</Text>
+                    <Text style={[sd.langBtnText, { color: language === 'ar' ? (isDark ? '#fff' : BRAND) : subtext }]}>ع</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => changeLanguage('en')}
+                    style={[sd.langBtn, language === 'en' && { backgroundColor: isDark ? '#1E293B' : '#fff' }]}
+                  >
+                    <Text style={[sd.langBtnText, { color: language === 'en' ? (isDark ? '#fff' : BRAND) : subtext }]}>EN</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
-              <View style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(74,20,140,0.3)' : '#F3E5F5', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
+              {/* Dark Mode */}
+              <View style={[sd.menuItem, { flexDirection: rowDir }]}>
+                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isDark ? 'rgba(74,20,140,0.3)' : '#F3E5F5' }]}>
                   <Ionicons name="moon-outline" size={20} color={isDark ? '#E1BEE7' : '#4A148C'} />
                 </View>
-                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'الوضع الداكن' : 'Dark Mode'}</Text>
-                <Switch value={isDark} onValueChange={toggleTheme} trackColor={{ false: '#CBD5E1', true: BRAND }} />
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: txtAlign }]}>
+                  {language === 'ar' ? 'الوضع الداكن' : 'Dark Mode'}
+                </Text>
+                <Switch value={isDark} onValueChange={toggleTheme} trackColor={{ false: '#CBD5E1', true: BRAND }} thumbColor="#fff" />
               </View>
 
-              <TouchableOpacity 
-                style={[sd.menuItem, { flexDirection: isAR ? 'row-reverse' : 'row' }]} 
+              {/* Support */}
+              <TouchableOpacity
+                style={[sd.menuItem, { flexDirection: rowDir }]}
                 onPress={() => Linking.openURL('mailto:anintl.ind@gmail.com?subject=DigCard Support Request')}
               >
-                <View style={[sd.menuIcon, { backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FEF2F2', marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
+                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FEF2F2' }]}>
                   <Ionicons name="help-buoy-outline" size={20} color="#EF4444" />
                 </View>
-                <Text style={[sd.menuLabel, { color: text, textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'الدعم الفني' : 'Support'}</Text>
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: txtAlign }]}>
+                  {language === 'ar' ? 'الدعم الفني' : 'Support'}
+                </Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
 
-          <View style={{ paddingVertical: 8 }}>
+          <View style={[sd.drawerFooter, { backgroundColor: bg }]}>
             <TouchableOpacity style={sd.signOutBtn} onPress={onLogout}>
               <Text style={sd.signOutText}>{isAR ? 'تسجيل خروج' : 'Sign Out'}</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </SafeAreaView>
       </Animated.View>
     </Modal>
   );
@@ -159,64 +188,91 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
 /* ─── Share option row ─── */
 function ShareRow({ icon, label, onPress, isLast, customIcon, isAR }) {
   return (
-    <TouchableOpacity 
-      style={[sh.row, !isLast && sh.rowBorder, { flexDirection: isAR ? 'row-reverse' : 'row' }]} 
-      onPress={onPress} 
+    <TouchableOpacity
+      style={[sh.row, !isLast && sh.rowBorder, { flexDirection: isAR ? 'row-reverse' : 'row' }]}
+      onPress={onPress}
       activeOpacity={0.7}
     >
       <View style={[sh.rowIconWrap, { marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
         {customIcon || <Ionicons name={icon} size={22} color="#fff" />}
       </View>
       <Text style={[sh.rowLabel, { flex: 1, textAlign: isAR ? 'right' : 'left' }]}>{label}</Text>
-      <Ionicons name={isAR ? "chevron-back" : "chevron-forward"} size={15} color="rgba(255,255,255,0.35)" />
+      <Ionicons name={isAR ? 'chevron-back' : 'chevron-forward'} size={15} color="rgba(255,255,255,0.35)" />
     </TouchableOpacity>
   );
 }
 
+/* ─── Shared sub-screen header ─── */
+function SubHeader({ onBack, title, onSend, sendLabel, isAR }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[sub.header, {
+      paddingTop: Math.max(insets.top, 16) + 8,
+      flexDirection: isAR ? 'row-reverse' : 'row',
+    }]}>
+      <TouchableOpacity
+        onPress={onBack}
+        style={sub.backBtn}
+        hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+        activeOpacity={0.6}
+      >
+        <Ionicons name={isAR ? 'chevron-forward' : 'chevron-back'} size={24} color="#fff" />
+      </TouchableOpacity>
+      <Text style={sub.headerTitle} numberOfLines={1}>{title}</Text>
+      <TouchableOpacity
+        onPress={onSend}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      >
+        <Text style={sub.headerAction}>{sendLabel}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 /* ─── Email sub-screen ─── */
-function EmailScreen({ onBack, cardUrl, displayName, isAR }) {
+function EmailScreen({ onBack, cardUrl, displayName }) {
+  const { language } = useAppContext();
+  const isAR = language === 'ar';
   const [to, setTo] = useState('');
-  const [message, setMessage] = useState(isAR ? 'مرحباً، اضغط على هذا الرابط للحصول على بطاقة عملي:' : 'Hi, tap this link to get my business card:');
+  const [message, setMessage] = useState(isAR ? 'مرحباً، انقر على هذا الرابط للحصول على بطاقتي:' : 'Hi, tap this link to get my business card:');
   const send = () => {
-    if (!to.trim()) { Alert.alert(isAR ? 'مطلوب' : 'Required', isAR ? 'يرجى إدخال البريد الإلكتروني للمستلم.' : 'Enter a recipient email.'); return; }
+    if (!to.trim()) { Alert.alert(isAR ? 'مطلوب' : 'Required', isAR ? 'أدخل البريد الإلكتروني للمستلم.' : 'Enter a recipient email.'); return; }
     Linking.openURL(`mailto:${encodeURIComponent(to.trim())}?subject=${encodeURIComponent(`${displayName}'s Digital Card`)}&body=${encodeURIComponent(`${message}\n\n${cardUrl}`)}`);
   };
   return (
     <KeyboardAvoidingView style={sub.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[sub.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-        <TouchableOpacity onPress={onBack} hitSlop={12}>
-          <Ionicons name={isAR ? 'chevron-forward' : 'chevron-back'} size={26} color="#fff" />
-        </TouchableOpacity>
-        <Text style={sub.headerTitle}>{isAR ? 'إرسال بطاقتك بالبريد' : 'Email Your Card'}</Text>
-        <TouchableOpacity onPress={send} hitSlop={12}>
-          <Text style={sub.headerAction}>{isAR ? 'إرسال' : 'SEND'}</Text>
-        </TouchableOpacity>
-      </View>
+      <SubHeader
+        onBack={onBack}
+        title={isAR ? 'إرسال بطاقتك بالبريد' : 'Email Your Card'}
+        onSend={send}
+        sendLabel={isAR ? 'إرسال' : 'SEND'}
+        isAR={isAR}
+      />
       <ScrollView contentContainerStyle={sub.body} keyboardShouldPersistTaps="handled">
         <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
-          <Text style={sub.cardLabel}>{isAR ? 'إلى...' : 'To...'}</Text>
-          <TextInput 
-            style={[sub.input, { textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
-            placeholder="recipient@email.com" 
-            placeholderTextColor="rgba(255,255,255,0.4)" 
-            value={to} 
-            onChangeText={setTo} 
-            keyboardType="email-address" 
-            autoCapitalize="none" 
+          <Text style={[sub.cardLabel, { textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'إلى...' : 'To...'}</Text>
+          <TextInput
+            style={[sub.input, { textAlign: isAR ? 'right' : 'left', width: '100%' }]}
+            placeholder="recipient@email.com"
+            placeholderTextColor="rgba(255,255,255,0.4)"
+            value={to}
+            onChangeText={setTo}
+            keyboardType="email-address"
+            autoCapitalize="none"
           />
         </View>
         <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
-          <Text style={sub.cardLabel}>{isAR ? 'الرسالة...' : 'Message...'}</Text>
-          <TextInput 
-            style={[sub.input, { minHeight: 60, textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
-            multiline 
-            value={message} 
-            onChangeText={setMessage} 
-            placeholderTextColor="rgba(255,255,255,0.4)" 
+          <Text style={[sub.cardLabel, { textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'الرسالة...' : 'Message...'}</Text>
+          <TextInput
+            style={[sub.input, { minHeight: 60, textAlign: isAR ? 'right' : 'left', width: '100%' }]}
+            multiline
+            value={message}
+            onChangeText={setMessage}
+            placeholderTextColor="rgba(255,255,255,0.4)"
           />
         </View>
         <TouchableOpacity style={[sub.sendBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={send} activeOpacity={0.85}>
-          <Ionicons name="send" size={18} color={BRAND} style={isAR ? { marginLeft: 8 } : { marginRight: 8 }} />
+          <Ionicons name="send" size={18} color={BRAND} style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
           <Text style={sub.sendBtnText}>{isAR ? 'إرسال البريد الإلكتروني' : 'SEND EMAIL'}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -225,45 +281,49 @@ function EmailScreen({ onBack, cardUrl, displayName, isAR }) {
 }
 
 /* ─── Text sub-screen ─── */
-function TextScreen({ onBack, cardUrl, isAR }) {
+function TextScreen({ onBack, cardUrl }) {
+  const { language } = useAppContext();
+  const isAR = language === 'ar';
   const [phone, setPhone] = useState('');
-  const [message, setMessage] = useState(isAR ? 'مرحباً، اضغط على هذا الرابط للحصول على بطاقة عملي:' : 'Hi, tap this link to get my business card:');
-  const send = () => Linking.openURL(phone.trim() ? `sms:${encodeURIComponent(phone.trim())}?body=${encodeURIComponent(`${message}\n${cardUrl}`)}` : `sms:?body=${encodeURIComponent(`${message}\n${cardUrl}`)}`);
+  const [message, setMessage] = useState(isAR ? 'مرحباً، انقر على هذا الرابط للحصول على بطاقتي:' : 'Hi, tap this link to get my business card:');
+  const send = () => Linking.openURL(
+    phone.trim()
+      ? `sms:${encodeURIComponent(phone.trim())}?body=${encodeURIComponent(`${message}\n${cardUrl}`)}`
+      : `sms:?body=${encodeURIComponent(`${message}\n${cardUrl}`)}`
+  );
   return (
     <KeyboardAvoidingView style={sub.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[sub.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-        <TouchableOpacity onPress={onBack} hitSlop={12}>
-          <Ionicons name={isAR ? 'chevron-forward' : 'chevron-back'} size={26} color="#fff" />
-        </TouchableOpacity>
-        <Text style={sub.headerTitle}>{isAR ? 'إرسال بطاقتك بنص' : 'Text Your Card'}</Text>
-        <TouchableOpacity onPress={send} hitSlop={12}>
-          <Text style={sub.headerAction}>{isAR ? 'إرسال' : 'SEND'}</Text>
-        </TouchableOpacity>
-      </View>
+      <SubHeader
+        onBack={onBack}
+        title={isAR ? 'إرسال بطاقتك برسالة' : 'Text Your Card'}
+        onSend={send}
+        sendLabel={isAR ? 'إرسال' : 'SEND'}
+        isAR={isAR}
+      />
       <ScrollView contentContainerStyle={sub.body} keyboardShouldPersistTaps="handled">
         <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
-          <Text style={sub.cardLabel}>{isAR ? 'رقم الهاتف...' : 'Phone number...'}</Text>
-          <TextInput 
-            style={[sub.input, { textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
-            placeholder={isAR ? "رقم الهاتف" : "Phone number"} 
-            placeholderTextColor="rgba(255,255,255,0.4)" 
-            value={phone} 
-            onChangeText={setPhone} 
-            keyboardType="phone-pad" 
+          <Text style={[sub.cardLabel, { textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'رقم الهاتف...' : 'Phone number...'}</Text>
+          <TextInput
+            style={[sub.input, { textAlign: isAR ? 'right' : 'left', width: '100%' }]}
+            placeholder={isAR ? 'رقم الهاتف' : 'Phone number'}
+            placeholderTextColor="rgba(255,255,255,0.4)"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
           />
         </View>
         <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
-          <Text style={sub.cardLabel}>{isAR ? 'الرسالة...' : 'Message...'}</Text>
-          <TextInput 
-            style={[sub.input, { minHeight: 60, textAlign: isAR ? 'right' : 'left', width: '100%' }]} 
-            multiline 
-            value={message} 
-            onChangeText={setMessage} 
-            placeholderTextColor="rgba(255,255,255,0.4)" 
+          <Text style={[sub.cardLabel, { textAlign: isAR ? 'right' : 'left' }]}>{isAR ? 'الرسالة...' : 'Message...'}</Text>
+          <TextInput
+            style={[sub.input, { minHeight: 60, textAlign: isAR ? 'right' : 'left', width: '100%' }]}
+            multiline
+            value={message}
+            onChangeText={setMessage}
+            placeholderTextColor="rgba(255,255,255,0.4)"
           />
         </View>
         <TouchableOpacity style={[sub.sendBtn, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={send} activeOpacity={0.85}>
-          <Ionicons name="send" size={18} color={BRAND} style={isAR ? { marginLeft: 8 } : { marginRight: 8 }} />
+          <Ionicons name="send" size={18} color={BRAND} style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
           <Text style={sub.sendBtnText}>{isAR ? 'إرسال الرسالة' : 'SEND TEXT'}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -283,21 +343,19 @@ function WhatsAppScreen({ onBack, cardUrl, isAR }) {
   };
   return (
     <KeyboardAvoidingView style={sub.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[sub.header, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-        <TouchableOpacity onPress={onBack} hitSlop={12}>
-          <Ionicons name={isAR ? 'chevron-forward' : 'chevron-back'} size={26} color="#fff" />
-        </TouchableOpacity>
-        <Text style={sub.headerTitle}>{isAR ? 'إرسال عبر واتساب' : 'Send via WhatsApp'}</Text>
-        <TouchableOpacity onPress={send} hitSlop={12}>
-          <Text style={sub.headerAction}>{isAR ? 'إرسال' : 'SEND'}</Text>
-        </TouchableOpacity>
-      </View>
+      <SubHeader
+        onBack={onBack}
+        title={isAR ? 'إرسال عبر واتساب' : 'Send via WhatsApp'}
+        onSend={send}
+        sendLabel={isAR ? 'إرسال' : 'SEND'}
+        isAR={isAR}
+      />
       <ScrollView contentContainerStyle={sub.body} keyboardShouldPersistTaps="handled">
         <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
           <Text style={sub.cardLabel}>{isAR ? 'الرقم...' : 'Number...'}</Text>
           <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', width: '100%' }}>
             <TextInput style={[sub.input, { width: 60, [isAR ? 'marginLeft' : 'marginRight']: 8, textAlign: 'center' }]} value={countryCode} onChangeText={setCountryCode} keyboardType="phone-pad" />
-            <TextInput style={[sub.input, { flex: 1, textAlign: isAR ? 'right' : 'left' }]} placeholder={isAR ? "رقم الهاتف" : "Phone number"} placeholderTextColor="rgba(255,255,255,0.4)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+            <TextInput style={[sub.input, { flex: 1, textAlign: isAR ? 'right' : 'left' }]} placeholder={isAR ? 'رقم الهاتف' : 'Phone number'} placeholderTextColor="rgba(255,255,255,0.4)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
           </View>
         </View>
         <View style={[sub.card, { alignItems: isAR ? 'flex-end' : 'flex-start' }]}>
@@ -315,10 +373,10 @@ function WhatsAppScreen({ onBack, cardUrl, isAR }) {
 
 /* ═══════════════════════ Share Modal ═══════════════════════ */
 function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, tenantSlug }) {
+  const insets = useSafeAreaInsets();
   const [walletLoading, setWalletLoading] = useState(false);
   const [subScreen, setSubScreen] = useState(null);
   const qrSvgRef = useRef(null);
-  const insets = useSafeAreaInsets();
   const { language } = useAppContext();
   const isAR = language === 'ar';
 
@@ -361,96 +419,151 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
   };
 
   const addToWallet = async () => {
-    if ((!tenantSlug || !cardSlug) && !cardId) { Alert.alert(isAR ? 'غير متوفر' : 'Unavailable', isAR ? 'معلومات البطاقة غير متوفرة.' : 'Card info not found.'); return; }
+    if ((!tenantSlug || !cardSlug) && !cardId) {
+      Alert.alert(
+        isAR ? 'غير متوفر' : 'Unavailable',
+        isAR ? 'معلومات البطاقة غير متوفرة.' : 'Card info not found.'
+      );
+      return;
+    }
     setWalletLoading(true);
     try {
-      let walletUrl = null;
-      if (tenantSlug && cardSlug) {
-        try { const { data } = await cardsApi.getPublicWalletPass(tenantSlug, cardSlug); walletUrl = data?.walletUrl; } catch {}
+      if (Platform.OS === 'ios') {
+        if (tenantSlug && cardSlug) {
+          // On iOS, we directly open the public Apple Wallet .pkpass endpoint
+          // Safari will download it and show the native "Add to Apple Wallet" card.
+          const applePassUrl = `${API_BASE_URL}/public/card/apple-pass/${tenantSlug}/${cardSlug}`;
+          await Linking.openURL(applePassUrl);
+          return;
+        }
       }
-      if (!walletUrl && cardId) { const { data } = await cardsApi.getWalletPass(cardId); walletUrl = data?.walletUrl; }
-      walletUrl ? await Linking.openURL(walletUrl) : Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'تعذر إنشاء بطاقة المحفظة.' : 'Could not generate wallet pass.');
+
+      // Fallback / Android: Fetch Google Wallet URL from server
+      let walletUrl = null;
+
+      // Try public endpoint first (requires POST)
+      if (tenantSlug && cardSlug) {
+        try {
+          const res = await cardsApi.getPublicWalletPass(tenantSlug, cardSlug);
+          // Prefer applePassUrl on iOS if we hit fallback, otherwise use walletUrl (Google Pay URL)
+          walletUrl = Platform.OS === 'ios'
+            ? (res.data?.applePassUrl || res.data?.apple_wallet_url || res.data?.walletUrl || res.data?.url)
+            : (res.data?.walletUrl || res.data?.applePassUrl || res.data?.apple_wallet_url || res.data?.url);
+        } catch {}
+      }
+
+      // Fallback: authenticated endpoint
+      if (!walletUrl && cardId) {
+        try {
+          const res = await cardsApi.getWalletPass(cardId);
+          walletUrl = res.data?.walletUrl || res.data?.apple_wallet_url || res.data?.url;
+        } catch {}
+      }
+
+      if (!walletUrl) {
+        throw new Error(
+          isAR ? 'تعذر إنشاء بطاقة المحفظة.' : 'Could not generate wallet pass.'
+        );
+      }
+
+      await Linking.openURL(walletUrl);
     } catch (err) {
-      Alert.alert(isAR ? 'خطأ' : 'Error', err?.response?.data?.message || err?.message || (isAR ? 'فشلت العملية.' : 'Failed.'));
-    } finally { setWalletLoading(false); }
+      Alert.alert(isAR ? 'خطأ' : 'Error', err?.message || 'Failed.');
+    } finally {
+      setWalletLoading(false);
+    }
   };
 
   return (
     <Modal visible={visible} animationType="slide" statusBarTranslucent>
-      <SafeAreaView style={sh.safe}>
-        {subScreen === 'email' && <EmailScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} displayName={displayName} isAR={isAR} />}
-        {subScreen === 'text' && <TextScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} isAR={isAR} />}
-        {subScreen === 'whatsapp' && <WhatsAppScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} isAR={isAR} />}
+      {/* Sub-screens: each manages its own safe-area via SubHeader */}
+      {subScreen === 'email' && (
+        <EmailScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} displayName={displayName} isAR={isAR} />
+      )}
+      {subScreen === 'text' && (
+        <TextScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} isAR={isAR} />
+      )}
+      {subScreen === 'whatsapp' && (
+        <WhatsAppScreen onBack={() => setSubScreen(null)} cardUrl={cardUrl} isAR={isAR} />
+      )}
 
-        {!subScreen && (
-          <>
-            <StatusBar barStyle="light-content" backgroundColor={BRAND} />
-            <View style={[sh.header, { paddingTop: Math.max(insets.top, 8) + 6, flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-              <TouchableOpacity onPress={() => { setSubScreen(null); onClose(); }} hitSlop={12} style={sh.headerBtn}>
-                <Ionicons name="close" size={26} color="#fff" />
-              </TouchableOpacity>
-              <Text style={sh.headerTitle}>{isAR ? 'إرسال بطاقتك' : 'Send Your Card'}</Text>
-              <View style={sh.headerBtn} />
+      {!subScreen && (
+        <View style={sh.safe}>
+          <StatusBar barStyle="light-content" backgroundColor={BRAND} />
+
+          {/* Main share modal header */}
+          <View style={[sh.header, {
+            paddingTop: Math.max(insets.top, 16) + 8,
+            flexDirection: isAR ? 'row-reverse' : 'row'
+          }]}>
+            <TouchableOpacity
+              onPress={() => { setSubScreen(null); onClose(); }}
+              style={sh.closeBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="close" size={22} color="#fff" />
+            </TouchableOpacity>
+            <Text style={sh.headerTitle}>{isAR ? 'إرسال بطاقتك' : 'Send Your Card'}</Text>
+            <View style={sh.headerBtn} />
+          </View>
+
+          <ScrollView contentContainerStyle={sh.scroll} showsVerticalScrollIndicator={false}>
+            {cardUrl ? (
+              <View style={sh.qrWrap}>
+                <View style={sh.qrBox}>
+                  <QRCode value={cardUrl} size={210} color="#111" backgroundColor="#fff" getRef={r => { qrSvgRef.current = r; }} />
+                </View>
+                <Text style={sh.qrText}>
+                  {isAR
+                    ? `وجه الكاميرا نحو رمز QR\nلاستلام البطاقة`
+                    : `Point your camera at the QR\ncode to receive the card`}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={sh.group}>
+              <ShareRow icon="copy-outline" label={isAR ? 'نسخ الرابط' : 'Copy link'} onPress={copyLink} isLast isAR={isAR} />
             </View>
 
-            <ScrollView contentContainerStyle={sh.scroll} showsVerticalScrollIndicator={false}>
-              {cardUrl ? (
-                <View style={sh.qrWrap}>
-                  <View style={sh.qrBox}>
-                    <QRCode value={cardUrl} size={210} color="#111" backgroundColor="#fff" getRef={r => { qrSvgRef.current = r; }} />
-                  </View>
-                  <Text style={sh.qrText}>
-                    {isAR 
-                      ? `وجه الكاميرا نحو رمز QR\nلاستلام البطاقة` 
-                      : `Point your camera at the QR\ncode to receive the card`}
-                  </Text>
+            <View style={sh.group}>
+              <ShareRow icon="chatbubble-outline" label={isAR ? 'إرسال عبر رسالة نصية' : 'Text your card'} onPress={() => setSubScreen('text')} isAR={isAR} />
+              <ShareRow icon="mail-outline" label={isAR ? 'إرسال عبر بريد إلكتروني' : 'Email your card'} onPress={() => setSubScreen('email')} isAR={isAR} />
+              <ShareRow label={isAR ? 'إرسال عبر واتساب' : 'Send via WhatsApp'} onPress={() => setSubScreen('whatsapp')} isAR={isAR}
+                customIcon={<View style={[sh.brandBadge, { backgroundColor: '#25D366' }]}><Ionicons name="logo-whatsapp" size={16} color="#fff" /></View>} />
+              <ShareRow label={isAR ? 'إرسال عبر لينكد إن' : 'Send via LinkedIn'} onPress={() => Linking.openURL(`https://www.linkedin.com/messaging/compose/?body=${encodeURIComponent(shareMsg)}`)} isAR={isAR}
+                customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
+              <ShareRow icon="ellipsis-horizontal" label={isAR ? 'إرسال بطريقة أخرى' : 'Send another way'} onPress={sendOther} isLast isAR={isAR} />
+            </View>
+
+            <View style={sh.group}>
+              <ShareRow label={isAR ? 'نشر على لينكد إن' : 'Post to LinkedIn'} onPress={() => Linking.openURL(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(cardUrl)}`)} isAR={isAR}
+                customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
+              <ShareRow label={isAR ? 'نشر على فيسبوك' : 'Post to Facebook'} onPress={() => Linking.openURL(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(cardUrl)}`)} isLast isAR={isAR}
+                customIcon={<View style={[sh.brandBadge, { backgroundColor: '#1877F2' }]}><Ionicons name="logo-facebook" size={17} color="#fff" /></View>} />
+            </View>
+
+            <View style={sh.group}>
+              <ShareRow label={isAR ? 'حفظ رمز QR في الصور' : 'Save QR to photos'} onPress={saveQRToPhotos} isAR={isAR}
+                customIcon={<View style={[sh.brandBadge, { backgroundColor: 'transparent' }]}><Text style={{ fontSize: 22 }}>🖼️</Text></View>} />
+              <ShareRow icon="paper-plane-outline" label={isAR ? 'إرسال رمز QR' : 'Send QR code'} onPress={() => Share.share({ message: `${shareMsg}\n\nScan the QR or open the link.`, url: cardUrl }).catch(() => {})} isLast isAR={isAR} />
+            </View>
+
+            <View style={sh.group}>
+              <TouchableOpacity style={[sh.row, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={addToWallet} activeOpacity={0.7} disabled={walletLoading}>
+                <View style={[sh.rowIconWrap, { marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
+                  {walletLoading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="wallet-outline" size={22} color="#fff" />}
                 </View>
-              ) : null}
-
-              <View style={sh.group}>
-                <ShareRow icon="copy-outline" label={isAR ? 'نسخ الرابط' : 'Copy link'} onPress={copyLink} isLast isAR={isAR} />
-              </View>
-
-              <View style={sh.group}>
-                <ShareRow icon="chatbubble-outline" label={isAR ? 'إرسال عبر رسالة نصية' : 'Text your card'} onPress={() => setSubScreen('text')} isAR={isAR} />
-                <ShareRow icon="mail-outline" label={isAR ? 'إرسال عبر بريد إلكتروني' : 'Email your card'} onPress={() => setSubScreen('email')} isAR={isAR} />
-                <ShareRow label={isAR ? 'إرسال عبر واتساب' : 'Send via WhatsApp'} onPress={() => setSubScreen('whatsapp')} isAR={isAR}
-                  customIcon={<View style={[sh.brandBadge, { backgroundColor: '#25D366' }]}><Ionicons name="logo-whatsapp" size={16} color="#fff" /></View>} />
-                <ShareRow label={isAR ? 'إرسال عبر لينكد إن' : 'Send via LinkedIn'} onPress={() => Linking.openURL(`https://www.linkedin.com/messaging/compose/?body=${encodeURIComponent(`${shareMsg}`)}`)} isAR={isAR}
-                  customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
-                <ShareRow icon="ellipsis-horizontal" label={isAR ? 'إرسال بطريقة أخرى' : 'Send another way'} onPress={sendOther} isLast isAR={isAR} />
-              </View>
-
-              <View style={sh.group}>
-                <ShareRow label={isAR ? 'نشر على لينكد إن' : 'Post to LinkedIn'} onPress={() => Linking.openURL(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(cardUrl)}`)} isAR={isAR}
-                  customIcon={<View style={[sh.brandBadge, { backgroundColor: '#0A66C2' }]}><Text style={sh.liText}>in</Text></View>} />
-                <ShareRow label={isAR ? 'نشر على فيسبوك' : 'Post to Facebook'} onPress={() => Linking.openURL(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(cardUrl)}`)} isLast isAR={isAR}
-                  customIcon={<View style={[sh.brandBadge, { backgroundColor: '#1877F2' }]}><Ionicons name="logo-facebook" size={17} color="#fff" /></View>} />
-              </View>
-
-              <View style={sh.group}>
-                <ShareRow label={isAR ? 'حفظ رمز QR في الصور' : 'Save QR to photos'} onPress={saveQRToPhotos} isAR={isAR}
-                  customIcon={<View style={[sh.brandBadge, { backgroundColor: 'transparent' }]}><Text style={{ fontSize: 22 }}>🖼️</Text></View>} />
-                <ShareRow icon="paper-plane-outline" label={isAR ? 'إرسال رمز QR' : 'Send QR code'} onPress={() => Share.share({ message: `${shareMsg}\n\nScan the QR or open the link.`, url: cardUrl }).catch(() => {})} isLast isAR={isAR} />
-              </View>
-
-              <View style={sh.group}>
-                <TouchableOpacity style={[sh.row, { flexDirection: isAR ? 'row-reverse' : 'row' }]} onPress={addToWallet} activeOpacity={0.7} disabled={walletLoading}>
-                  <View style={[sh.rowIconWrap, { marginRight: isAR ? 0 : 14, marginLeft: isAR ? 14 : 0 }]}>
-                    {walletLoading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="wallet-outline" size={22} color="#fff" />}
-                  </View>
-                  <Text style={[sh.rowLabel, { flex: 1, textAlign: isAR ? 'right' : 'left' }]}>
-                    {walletLoading 
-                      ? (isAR ? 'جاري فتح المحفظة...' : 'Opening wallet…') 
-                      : (isAR ? 'إضافة البطاقة إلى المحفظة' : 'Add card to wallet')}
-                  </Text>
-                  <Ionicons name={isAR ? "chevron-back" : "chevron-forward"} size={15} color="rgba(255,255,255,0.35)" />
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </>
-        )}
-      </SafeAreaView>
+                <Text style={[sh.rowLabel, { flex: 1, textAlign: isAR ? 'right' : 'left' }]}>
+                  {walletLoading
+                    ? (isAR ? 'جاري فتح المحفظة...' : 'Opening wallet…')
+                    : (isAR ? 'إضافة البطاقة إلى المحفظة' : 'Add card to wallet')}
+                </Text>
+                <Ionicons name={isAR ? 'chevron-back' : 'chevron-forward'} size={15} color="rgba(255,255,255,0.35)" />
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      )}
     </Modal>
   );
 }
@@ -465,15 +578,14 @@ export default function MyCardScreen() {
   const [cardUrl, setCardUrl] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState(null);
-  const [cardId, setCardId] = useState(null);
   const [cardSlug, setCardSlug] = useState('');
   const [tenantSlug, setTenantSlug] = useState('');
+  const [cardId, setCardId] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [webLoading, setWebLoading] = useState(true);
   const [shareOpen, setShareOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [upcomingMeeting, setUpcomingMeeting] = useState(null);
   const [layoutMode, setLayoutMode] = useState('fab'); // 'fab' or 'footer'
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
   useEffect(() => {
     const loadLayoutPreference = async () => {
@@ -510,27 +622,13 @@ export default function MyCardScreen() {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'DOUBLE_TAP') {
         toggleLayoutMode();
+      } else if (data.type === 'WALLET_URL') {
+        console.log('[WebView] Apple Wallet URL from web page:', data.url);
       }
     } catch (err) {
       // Ignore
     }
   }, [toggleLayoutMode]);
-
-  const fetchUpcoming = useCallback(async () => {
-    try {
-      const { data } = await cardsApi.getMeetings();
-      const list = data.meetings || [];
-      // Check if any meeting is "tomorrow"
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowDateStr = tomorrow.toISOString().split('T')[0];
-      
-      const found = list.find(m => m.time.startsWith(tomorrowDateStr));
-      setUpcomingMeeting(found || null);
-    } catch {}
-  }, []);
-
-  useEffect(() => { fetchUpcoming(); }, [fetchUpcoming]);
 
   const handleLogout = () => {
     const go = async () => { await logout(); router.replace('/(auth)/login'); };
@@ -553,7 +651,6 @@ export default function MyCardScreen() {
           if (ts && cs) {
             setTenantSlug(ts);
             setCardSlug(cs);
-            setCardId(data?.card_id || null);
             const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
@@ -583,7 +680,6 @@ export default function MyCardScreen() {
         if (tSlug && cSlug) {
           setTenantSlug(tSlug);
           setCardSlug(cSlug);
-          setCardId(user?.card_id || null);
           const dName = (appLang === 'ar' && user?.name_ar) ? user.name_ar : (user?.name || 'My Card');
           setDisplayName(dName);
           setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
@@ -608,7 +704,6 @@ export default function MyCardScreen() {
           if (ts && cs) {
             setTenantSlug(ts);
             setCardSlug(cs);
-            setCardId(data?.card_id || user?.card_id || null);
             const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || user?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
@@ -638,9 +733,9 @@ export default function MyCardScreen() {
           cardData?.tenant_slug || cardData?.schema_slug ||
           parseDigCardPath(cardData?.card_url)?.tenantSlug || '';
         const cSlug = cardData?.slug || parseDigCardPath(cardData?.card_url)?.cardSlug || '';
-        setCardId(cardData.id);
         setTenantSlug(tSlug);
         setCardSlug(cSlug);
+        if (cardData.id) setCardId(cardData.id);
         const dName = (appLang === 'ar' && (cardData.name_ar || user?.name_ar)) ? (cardData.name_ar || user?.name_ar) : (cardData.name || user?.name || 'My Card');
         setDisplayName(dName);
         setAvatarUrl(resolveUrl(cardData.profile_image));
@@ -661,6 +756,54 @@ export default function MyCardScreen() {
 
   const pageBg = isAppDark ? '#0F172A' : '#F3F4F6';
   const footerBg = isAppDark ? 'rgba(15,23,42,0.97)' : 'rgba(243,244,246,0.97)';
+
+  const INJECT_SCRIPT = `
+    (function() {
+      // Force proper mobile viewport
+      var vp = document.querySelector('meta[name="viewport"]');
+      if (!vp) { vp = document.createElement('meta'); vp.name = 'viewport'; document.head.appendChild(vp); }
+      vp.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+
+      // Force card to fill full mobile width — remove all side gaps
+      var st = document.createElement('style');
+      st.textContent = [
+        'html,body{margin:0!important;padding:0!important;width:100vw!important;min-width:0!important;max-width:100vw!important;overflow-x:hidden!important;}',
+        '*{box-sizing:border-box!important;}',
+        '#root,#app,#__next{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important;}',
+        '[class]{max-width:100vw!important;}',
+        '[class*="container"],[class*="wrapper"],[class*="card"],[class*="layout"],[class*="page"],[class*="main"]',
+        '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:0!important;padding-right:0!important;}'
+      ].join('');
+      document.head.appendChild(st);
+
+      // Hide bottom action buttons (EN + AR)
+      var KEYWORDS = [
+        'share details','share your details','save contact','download card','submit my details',
+        'مشاركة التفاصيل','حفظ جهة الاتصال','تحميل البطاقة'
+      ];
+      function hideUI() {
+        document.querySelectorAll('button,[role="button"]').forEach(function(el) {
+          var t = (el.innerText || el.textContent || '').trim();
+          if (KEYWORDS.some(function(k) { return t.toLowerCase().indexOf(k.toLowerCase()) !== -1; })) {
+            el.style.setProperty('display','none','important');
+            var p = el.parentElement;
+            if (p) p.style.setProperty('display','none','important');
+          }
+        });
+        document.querySelectorAll('div,section').forEach(function(el) {
+          var t = (el.innerText || el.textContent || '').toLowerCase();
+          if (t.indexOf('share your details') !== -1 ||
+             (t.indexOf('your name') !== -1 && t.indexOf('your email') !== -1 && t.indexOf('your phone') !== -1)) {
+            el.style.setProperty('display','none','important');
+          }
+        });
+      }
+      hideUI();
+      setInterval(hideUI, 400);
+      new MutationObserver(hideUI).observe(document.documentElement, { childList: true, subtree: true });
+    })();
+    true;
+  `;
 
   return (
     <View style={{ flex: 1, backgroundColor: BRAND }}>
@@ -689,36 +832,27 @@ export default function MyCardScreen() {
         {loading ? (
           <ActivityIndicator style={{ flex: 1 }} color={BRAND} size="large" />
         ) : cardUrl ? (
-          <>
-            {/* WebView renders EXACTLY the same card as the public web page */}
+          <View style={{ flex: 1 }}>
             <WebView
               key={cardUrl}
               source={{ uri: cardUrl }}
               style={{ flex: 1, backgroundColor: 'transparent' }}
               containerStyle={{ backgroundColor: 'transparent' }}
               startInLoadingState
-              onLoadStart={() => setWebLoading(true)}
-              onLoadEnd={() => setWebLoading(false)}
               onMessage={handleMessage}
               renderLoading={() => (
-                <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: pageBg }]}>
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: pageBg }}>
                   <ActivityIndicator color={BRAND} size="large" />
                 </View>
               )}
-              // Inject CSS to remove the web page's own share/action buttons
-              // so the mobile native Share button handles sharing
               injectedJavaScriptBeforeContentLoaded={`
                 (function() {
-                  // Safe DOM element injection helper to avoid early head null TypeErrors
                   function injectDOM() {
                     var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
                     if (head) {
-                      // Ensure HTML/body occupies full screen width without margin/padding gaps
                       var style = document.createElement('style');
                       style.textContent = 'html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; overflow-x: hidden !important; } .space-y-2\\.5 { display: none !important; } body { -webkit-user-select: none; }';
                       head.appendChild(style);
-
-                      // Set viewport scale to avoid side margins/scaling issues
                       var meta = document.createElement('meta');
                       meta.name = 'viewport';
                       meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
@@ -728,8 +862,6 @@ export default function MyCardScreen() {
                     }
                   }
                   injectDOM();
-
-                  // Double click/tap listener in capture phase on window
                   var lastTap = 0;
                   window.addEventListener('touchstart', function(e) {
                     var currentTime = new Date().getTime();
@@ -741,7 +873,6 @@ export default function MyCardScreen() {
                     }
                     lastTap = currentTime;
                   }, true);
-
                   var lastClick = 0;
                   window.addEventListener('click', function(e) {
                     var currentTime = new Date().getTime();
@@ -758,7 +889,6 @@ export default function MyCardScreen() {
               `}
               injectedJavaScript={`
                 (function() {
-                  // Hide the Share Details + Visit Website buttons after React renders
                   function hideButtons() {
                     var els = document.querySelectorAll('button, a[href]');
                     els.forEach(function(el) {
@@ -770,6 +900,21 @@ export default function MyCardScreen() {
                   }
                   setTimeout(hideButtons, 800);
                   setTimeout(hideButtons, 2000);
+
+                  // Find and report Apple Wallet link URLs for diagnostics
+                  function reportWalletUrls() {
+                    document.querySelectorAll('a[href]').forEach(function(el) {
+                      var h = el.href || '';
+                      var t = (el.textContent || '').toLowerCase();
+                      if (h.includes('wallet') || h.includes('pkpass') || h.includes('pass') || t.includes('wallet') || t.includes('apple')) {
+                        if (window.ReactNativeWebView) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WALLET_URL', url: h }));
+                        }
+                      }
+                    });
+                  }
+                  setTimeout(reportWalletUrls, 1500);
+                  setTimeout(reportWalletUrls, 4000);
                 })();
                 true;
               `}
@@ -778,16 +923,14 @@ export default function MyCardScreen() {
               domStorageEnabled
               setSupportMultipleWindows={false}
               onShouldStartLoadWithRequest={(req) => {
-                // Allow same-origin (digicards.ansoftt.com) and about:blank
                 if (!req.url || req.url === 'about:blank') return true;
                 const base = FRONTEND_BASE_URL.replace(/\/$/, '');
                 if (req.url.startsWith(base) || req.url.startsWith('https://digicards.ansoftt.com')) return true;
-                // Open external links (mailto, tel, https external) in device browser
                 Linking.openURL(req.url).catch(() => {});
                 return false;
               }}
             />
-          </>
+          </View>
         ) : (
           /* No card found */
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }}>
@@ -803,7 +946,6 @@ export default function MyCardScreen() {
           </View>
         )}
 
-        {/* ── Share button (native) ── */}
         {cardUrl && layoutMode === 'footer' ? (
           <View style={[s.footer, { backgroundColor: footerBg }]}>
             <TouchableOpacity style={s.shareBtn} onPress={() => setShareOpen(true)} activeOpacity={0.85}>
@@ -819,6 +961,8 @@ export default function MyCardScreen() {
           </TouchableOpacity>
         ) : null}
       </View>
+
+
 
       <ShareModal
         visible={shareOpen}
@@ -894,12 +1038,24 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
   },
+  fsCloseBtn: {
+    position: 'absolute', right: 16,
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: BRAND,
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 6,
+  },
 });
 
 const sh = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BRAND },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   headerBtn: { width: 36, alignItems: 'center' },
+  closeBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
   scroll: { paddingHorizontal: 16, paddingBottom: 40 },
   qrWrap: { alignItems: 'center', marginBottom: 22, marginTop: 4 },
@@ -916,9 +1072,18 @@ const sh = StyleSheet.create({
 
 const sub = StyleSheet.create({
   container: { flex: 1, backgroundColor: BRAND },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
-  headerAction: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.15)',
+  },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: '#fff', flex: 1, textAlign: 'center' },
+  headerAction: { fontSize: 15, fontWeight: '700', color: '#fff', minWidth: 40, textAlign: 'right' },
   body: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 },
   card: { backgroundColor: 'rgba(255,255,255,0.13)', borderRadius: 14, padding: 16, marginBottom: 16 },
   cardLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '600', marginBottom: 10 },
@@ -929,18 +1094,22 @@ const sub = StyleSheet.create({
 
 const sd = StyleSheet.create({
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)' },
-  panel: { position: 'absolute', top: 0, left: 0, bottom: 0, width: SCREEN_WIDTH * 0.75, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, shadowOffset: { width: 4, height: 0 }, elevation: 12 },
-  profileSection: { backgroundColor: BRAND, paddingHorizontal: 24, paddingTop: 32, paddingBottom: 28, alignItems: 'flex-start' },
-  avatar: { width: 72, height: 72, borderRadius: 36, marginBottom: 14 },
+  panel: { position: 'absolute', top: 0, bottom: 0, width: SCREEN_WIDTH * 0.78, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 16, shadowOffset: { width: 4, height: 0 }, elevation: 12 },
+  profileSection: { backgroundColor: BRAND, paddingHorizontal: 24, paddingTop: 36, paddingBottom: 28 },
+  avatar: { width: 76, height: 76, borderRadius: 38, marginBottom: 14, borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)' },
   avatarFallback: { backgroundColor: 'rgba(255,255,255,0.25)', justifyContent: 'center', alignItems: 'center' },
-  avatarInitial: { fontSize: 26, fontWeight: '800', color: '#fff' },
-  name: { fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  avatarInitial: { fontSize: 28, fontWeight: '800', color: '#fff' },
+  name: { fontSize: 17, fontWeight: '700', color: '#fff', marginBottom: 4 },
   email: { fontSize: 13, color: 'rgba(255,255,255,0.75)' },
-  divider: { height: 1, marginHorizontal: 16, marginVertical: 8 },
-  menu: { paddingHorizontal: 12, paddingTop: 8 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 12, borderRadius: 10 },
-  menuIcon: { width: 38, height: 38, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 14 },
+  divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16, marginVertical: 6 },
+  menu: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 8 },
+  menuItem: { alignItems: 'center', paddingVertical: 12, paddingHorizontal: 8, borderRadius: 10 },
+  menuIcon: { width: 40, height: 40, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
   menuLabel: { fontSize: 15, fontWeight: '600' },
-  signOutBtn: { marginHorizontal: 16, marginBottom: 24, backgroundColor: '#FEF2F2', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  langToggle: { flexDirection: 'row', borderRadius: 20, padding: 3 },
+  langBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
+  langBtnText: { fontSize: 13, fontWeight: '700' },
+  drawerFooter: { paddingHorizontal: 16, paddingBottom: 28, paddingTop: 8 },
+  signOutBtn: { backgroundColor: '#FEF2F2', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   signOutText: { color: '#EF4444', fontWeight: '700', fontSize: 15 },
 });
