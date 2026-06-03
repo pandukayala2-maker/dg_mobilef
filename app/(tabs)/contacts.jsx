@@ -19,12 +19,15 @@ import {
 } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as Contacts from 'expo-contacts';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import AddMeetingModal from '@/components/AddMeetingModal';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useAppContext } from '@/context/AppContext';
 import { leadsApi, cardsApi, authApi } from '@/services/api';
+import SwipeableRow from '@/components/SwipeableRow';
 
 const CORAL = '#1b4654';
 
@@ -60,6 +63,34 @@ function getInitials(name = '') {
     .join('');
 }
 
+function renderStatusBadge(status, isAR) {
+  let label = 'New';
+  let color = '#64748B'; // gray
+  let bg = 'rgba(100, 116, 139, 0.1)';
+
+  if (status === 'in_progress') {
+    label = isAR ? 'قيد المتابعة' : 'In Progress';
+    color = '#F59E0B'; // orange
+    bg = 'rgba(245, 158, 11, 0.1)';
+  } else if (status === 'meeting_scheduled') {
+    label = isAR ? 'موعد مجدول' : 'Meeting';
+    color = '#3B82F6'; // blue
+    bg = 'rgba(59, 130, 246, 0.1)';
+  } else if (status === 'closed') {
+    label = isAR ? 'مكتملة' : 'Closed';
+    color = '#10B981'; // green
+    bg = 'rgba(16, 185, 129, 0.1)';
+  } else {
+    label = isAR ? 'جديد' : 'New';
+  }
+
+  return (
+    <View style={{ backgroundColor: bg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, alignSelf: isAR ? 'flex-end' : 'flex-start', marginTop: 4 }}>
+      <Text style={{ fontSize: 9, fontWeight: '800', color }}>{label}</Text>
+    </View>
+  );
+}
+
 function formatRelative(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -71,7 +102,7 @@ function formatRelative(dateStr) {
 }
 
 /* ─── Contact Detail Bottom Sheet ─── */
-function ContactDetailSheet({ contact, onClose, isDark }) {
+function ContactDetailSheet({ contact, onClose, isDark, onAddMeeting }) {
   if (!contact) return null;
 
   const name = contact.visitor_name || 'Unknown';
@@ -174,6 +205,26 @@ function ContactDetailSheet({ contact, onClose, isDark }) {
                   </TouchableOpacity>
                 ) : null}
               </View>
+
+              {/* CRM Actions */}
+              <View style={[cs.secondRow, { marginTop: 10 }]}>
+                <TouchableOpacity
+                  style={[cs.actionBtn, { backgroundColor: '#0284c7' }]}
+                  onPress={() => onAddMeeting(contact)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="calendar-outline" size={20} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={[cs.actionBtnText, { color: '#fff' }]}>Add Meeting</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[cs.actionBtn, { backgroundColor: '#059669' }]}
+                  onPress={onClose}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="briefcase-outline" size={20} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={[cs.actionBtnText, { color: '#fff' }]}>CRM Details</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </ScrollView>
         </View>
@@ -187,6 +238,7 @@ export default function ContactsScreen() {
   const { isDark, language, brandColor } = useAppContext();
   const isAR = language === 'ar';
   const router = useRouter();
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const [contacts, setContacts] = useState([]);
   const [cardData, setCardData] = useState(null);
@@ -207,7 +259,12 @@ export default function ContactsScreen() {
   // Contact Detail Modal State
   const [selectedContact, setSelectedContact] = useState(null);
   const [noteText, setNoteText] = useState('');
+  const [leadStatus, setLeadStatus] = useState('new');
   const [savingNote, setSavingNote] = useState(false);
+
+  // Meeting Modal State
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const [meetingContact, setMeetingContact] = useState(null);
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -280,6 +337,14 @@ export default function ContactsScreen() {
   }, [user, cardData]);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
+
+  useEffect(() => {
+    if (params?.add === 'true') {
+      setShowAddModal(true);
+      // Clear route parameters so it doesn't open on re-render/tab switch
+      router.setParams({ add: undefined });
+    }
+  }, [params]);
 
   const handleManualAdd = async () => {
     if (!newName.trim()) { 
@@ -372,13 +437,13 @@ export default function ContactsScreen() {
     if (!selectedContact) return;
     setSavingNote(true);
     try {
-      await leadsApi.update(selectedContact.id, { notes: noteText.trim() });
-      setSelectedContact(prev => prev ? { ...prev, notes: noteText.trim() } : null);
-      setContacts(prev => prev.map(c => c.id === selectedContact.id ? { ...c, notes: noteText.trim() } : c));
-      Alert.alert(isAR ? 'نجاح' : 'Success', isAR ? 'تم حفظ الملاحظة' : 'Note saved successfully.');
+      await leadsApi.update(selectedContact.id, { notes: noteText.trim(), status: leadStatus });
+      setSelectedContact(prev => prev ? { ...prev, notes: noteText.trim(), status: leadStatus } : null);
+      setContacts(prev => prev.map(c => c.id === selectedContact.id ? { ...c, notes: noteText.trim(), status: leadStatus } : c));
+      Alert.alert(isAR ? 'نجاح' : 'Success', isAR ? 'تم حفظ التغييرات بنجاح' : 'Progress saved successfully.');
     } catch (err) {
       console.error('[SaveNote Error]', err);
-      Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'فشل حفظ الملاحظة' : 'Failed to save note.');
+      Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'فشل حفظ التغييرات' : 'Failed to save notes & status.');
     } finally {
       setSavingNote(false);
     }
@@ -386,33 +451,84 @@ export default function ContactsScreen() {
 
   const handleSaveToDevice = async (contact) => {
     try {
-      const vcard = `BEGIN:VCARD
-VERSION:3.0
-FN:${contact.visitor_name}
-TEL;TYPE=CELL:${contact.phone || ''}
-EMAIL:${contact.email || ''}
-NOTE:Captured from DigCard App
-END:VCARD`;
-      const filename = `${FileSystem.documentDirectory}${contact.visitor_name.replace(/[^a-zA-Z0-9]/g, '_')}.vcf`;
-      await FileSystem.writeAsStringAsync(filename, vcard, { encoding: FileSystem.EncodingType.UTF8 });
-      await Sharing.shareAsync(filename, { mimeType: 'text/vcard', dialogTitle: isAR ? 'حفظ جهة الاتصال' : 'Save Contact' });
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'مطلوب إذن الوصول لجهات الاتصال' : 'Contacts permission is required.');
+        return;
+      }
+
+      const contactData = {
+        [Contacts.Fields.FirstName]: contact.visitor_name || 'Contact',
+        [Contacts.Fields.Note]: 'Captured from DigCard App',
+      };
+
+      if (contact.phone) {
+        contactData[Contacts.Fields.PhoneNumbers] = [{
+          label: 'mobile',
+          number: contact.phone,
+        }];
+      }
+
+      if (contact.email) {
+        contactData[Contacts.Fields.Emails] = [{
+          label: 'work',
+          email: contact.email,
+        }];
+      }
+
+      const companyName = contact.company_name || contact.company;
+      if (companyName) {
+        contactData[Contacts.Fields.Company] = companyName;
+      }
+
+      // Open the native Add Contact form pre-filled with data
+      await Contacts.presentFormAsync(null, contactData);
+      
     } catch (err) {
       console.error('[SaveToDevice Error]', err);
-      Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'فشل حفظ جهة الاتصال بالهاتف' : 'Failed to export contact file.');
+      Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'فشل حفظ جهة الاتصال بالهاتف' : 'Failed to save to device contacts.');
     }
   };
 
   const handleScheduleMeeting = (contact) => {
-    const title = `Meeting with ${contact.visitor_name}`;
-    const details = `Contact Details:\nPhone: ${contact.phone || 'N/A'}\nEmail: ${contact.email || 'N/A'}`;
-    const now = new Date();
-    const start = new Date(now.getTime() + 24 * 3600000); // Tomorrow
-    const end = new Date(start.getTime() + 3600 * 1000); // 1 hour duration
-    const toGoogleDate = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&details=${encodeURIComponent(details)}&dates=${toGoogleDate(start)}/${toGoogleDate(end)}`;
-    Linking.openURL(url).catch(() => {
-      Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'فشل فتح التقويم' : 'Failed to open calendar.');
-    });
+    // Open our modern internal meeting scheduler instead of just Linking to Google Calendar
+    setMeetingContact(contact);
+    setShowMeetingModal(true);
+  };
+
+  const handleSaveMeetingModal = async (meetingDetails) => {
+    if (!meetingContact) return;
+    const { title, dateStr, startTime, endTime, noteText: meetingNotes } = meetingDetails;
+    
+    // Format the summary cleanly
+    const summary = `--- Meeting Scheduled ---\nTitle: ${title}\nDate: ${dateStr}\nTime: ${startTime} to ${endTime}\nNotes: ${meetingNotes}\n\n`;
+    const updatedNotes = meetingContact.notes ? `${summary}${meetingContact.notes}` : summary;
+
+    try {
+      await leadsApi.update(meetingContact.id, { 
+        notes: updatedNotes,
+        meeting_status: 'scheduled'
+      });
+      
+      Alert.alert(isAR ? 'نجاح' : 'Success', isAR ? 'تمت جدولة الاجتماع وحفظه.' : 'Meeting scheduled and saved cleanly to notes.');
+      
+      // Update local state
+      setContacts(prev => prev.map(c => c.id === meetingContact.id ? { ...c, notes: updatedNotes, meeting_status: 'scheduled' } : c));
+      
+      // Also optionally open Google Calendar URL for convenience if they want to add it to device
+      const details = `Meeting with ${meetingContact.visitor_name}\n${meetingNotes}`;
+      const toGoogleDate = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      const startD = new Date(`${dateStr}T10:00:00`);
+      const endD = new Date(startD.getTime() + 3600*1000);
+      const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&details=${encodeURIComponent(details)}&dates=${toGoogleDate(startD)}/${toGoogleDate(endD)}`;
+      Linking.openURL(url).catch(() => {});
+    } catch (err) {
+      console.error('[Save Meeting Error]', err);
+      Alert.alert(isAR ? 'خطأ' : 'Error', isAR ? 'فشل الحفظ' : 'Failed to save meeting.');
+    } finally {
+      setShowMeetingModal(false);
+      setMeetingContact(null);
+    }
   };
 
   const handlePhoneCall = (phone) => {
@@ -468,6 +584,13 @@ END:VCARD`;
           ) : null}
         </View>
         <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={[styles.iconBtn, styles.dashboardBtn]}
+            onPress={() => router.push('/crm-dashboard')}
+            hitSlop={8}
+          >
+            <Ionicons name="grid-outline" size={18} color="#fff" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} onPress={handleLogout}>
             <Ionicons name="log-out-outline" size={22} color="#fff" />
           </TouchableOpacity>
@@ -518,54 +641,79 @@ END:VCARD`;
           renderItem={({ item }) => {
             const name = item.visitor_name || (isAR ? 'غير معروف' : 'Unknown');
             return (
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setSelectedContact(item);
-                  setNoteText(item.notes || '');
-                }}
-                style={[styles.contactRow, { backgroundColor: cardBg, borderColor: border, flexDirection: isAR ? 'row-reverse' : 'row', paddingVertical: 12 }]}
+              <SwipeableRow
+                onDelete={() => handleDeleteContact(item.id)}
+                isAR={isAR}
+                isDark={isDark}
+                backgroundStyle={{ left: 0, right: 0, top: 0, borderRadius: 0 }}
               >
-                <View style={[styles.avatar, { backgroundColor: getAvatarColor(name), marginLeft: isAR ? 14 : 0, marginRight: isAR ? 0 : 14 }]}>
-                  <Text style={styles.avatarText}>{getInitials(name)}</Text>
-                </View>
-                <View style={[styles.info, { alignItems: isAR ? 'flex-end' : 'flex-start', flex: 1 }]}>
-                  <Text style={[styles.name, { color: text }]} numberOfLines={1}>{name}</Text>
-                  {item.email ? (
-                    <View style={[styles.metaRow, { flexDirection: isAR ? 'row-reverse' : 'row', marginTop: 3 }]}>
-                      <Ionicons name="mail-outline" size={12} color={subtext} style={[styles.metaIcon, { marginLeft: isAR ? 6 : 0, marginRight: isAR ? 0 : 6 }]} />
-                      <Text style={[styles.metaText, { color: subtext }]} numberOfLines={1}>{item.email}</Text>
-                    </View>
-                  ) : null}
-                  {item.phone ? (
-                    <View style={[styles.metaRow, { flexDirection: isAR ? 'row-reverse' : 'row', marginTop: 3 }]}>
-                      <Ionicons name="call-outline" size={12} color={subtext} style={[styles.metaIcon, { marginLeft: isAR ? 6 : 0, marginRight: isAR ? 0 : 6 }]} />
-                      <Text style={[styles.metaText, { color: subtext }]} numberOfLines={1}>{item.phone}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <View style={[styles.right, { alignItems: isAR ? 'flex-start' : 'flex-end', justifyContent: 'space-between', height: '100%', minHeight: 52 }]}>
-                  <Text style={[styles.time, { color: subtext, fontSize: 10 }]}>{formatRelative(item.created_at)}</Text>
-                  <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', gap: 12, alignItems: 'center', marginTop: 6 }}>
-                    {item.phone ? (
-                      <>
-                        <TouchableOpacity onPress={() => handleWhatsApp(item.phone)} hitSlop={8}>
-                          <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => handlePhoneCall(item.phone)} hitSlop={8}>
-                          <Ionicons name="call" size={16} color={brandColor} />
-                        </TouchableOpacity>
-                      </>
-                    ) : null}
-                    <TouchableOpacity onPress={() => handleShare(item)} hitSlop={8}>
-                      <Ionicons name="share-social-outline" size={16} color="#888" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeleteContact(item.id)} hitSlop={8}>
-                      <Ionicons name="trash-outline" size={16} color="#EF4444" />
-                    </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setSelectedContact(item);
+                    setNoteText(item.notes || '');
+                    setLeadStatus(item.status || 'new');
+                  }}
+                  style={[styles.contactRow, { backgroundColor: cardBg, borderColor: border, flexDirection: isAR ? 'row-reverse' : 'row', paddingVertical: 12 }]}
+                >
+                  <View style={[styles.avatar, { backgroundColor: getAvatarColor(name), marginLeft: isAR ? 14 : 0, marginRight: isAR ? 0 : 14 }]}>
+                    <Text style={styles.avatarText}>{getInitials(name)}</Text>
                   </View>
-                </View>
-              </TouchableOpacity>
+                  <View style={[styles.info, { alignItems: isAR ? 'flex-end' : 'flex-start', flex: 1 }]}>
+                    <Text style={[styles.name, { color: text }]} numberOfLines={1}>{name}</Text>
+                    {item.email ? (
+                      <View style={[styles.metaRow, { flexDirection: isAR ? 'row-reverse' : 'row', marginTop: 3 }]}>
+                        <Ionicons name="mail-outline" size={12} color={subtext} style={[styles.metaIcon, { marginLeft: isAR ? 6 : 0, marginRight: isAR ? 0 : 6 }]} />
+                        <Text style={[styles.metaText, { color: subtext }]} numberOfLines={1}>{item.email}</Text>
+                      </View>
+                    ) : null}
+                    {item.phone ? (
+                      <View style={[styles.metaRow, { flexDirection: isAR ? 'row-reverse' : 'row', marginTop: 3 }]}>
+                        <Ionicons name="call-outline" size={12} color={subtext} style={[styles.metaIcon, { marginLeft: isAR ? 6 : 0, marginRight: isAR ? 0 : 6 }]} />
+                        <Text style={[styles.metaText, { color: subtext }]} numberOfLines={1}>{item.phone}</Text>
+                      </View>
+                    ) : null}
+                    {renderStatusBadge(item.status || 'new', isAR)}
+                  </View>
+                  <View style={[styles.right, { alignItems: isAR ? 'flex-start' : 'flex-end', justifyContent: 'space-between', height: '100%', minHeight: 52 }]}>
+                    <Text style={[styles.time, { color: subtext, fontSize: 10 }]}>{formatRelative(item.created_at)}</Text>
+                    <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', gap: 12, alignItems: 'center', marginTop: 6 }}>
+                      {item.phone ? (
+                        <>
+                          <TouchableOpacity 
+                            onPress={(e) => { e?.stopPropagation?.(); handleWhatsApp(item.phone); }} 
+                            onPressIn={(e) => e?.stopPropagation?.()}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            onPress={(e) => { e?.stopPropagation?.(); handlePhoneCall(item.phone); }} 
+                            onPressIn={(e) => e?.stopPropagation?.()}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="call" size={16} color={brandColor} />
+                          </TouchableOpacity>
+                        </>
+                      ) : null}
+                      <TouchableOpacity 
+                        onPress={(e) => { e?.stopPropagation?.(); handleShare(item); }} 
+                        onPressIn={(e) => e?.stopPropagation?.()}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="share-social-outline" size={16} color="#888" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        onPress={(e) => { e?.stopPropagation?.(); handleDeleteContact(item.id); }} 
+                        onPressIn={(e) => e?.stopPropagation?.()}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </SwipeableRow>
             );
           }}
           ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: isDark ? '#334155' : '#F5F5F5', [isAR ? 'marginRight' : 'marginLeft']: 78 }} />}
@@ -751,6 +899,20 @@ END:VCARD`;
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Internal Add Meeting Modal */}
+      <AddMeetingModal
+        visible={showMeetingModal}
+        onClose={() => {
+          setShowMeetingModal(false);
+          setMeetingContact(null);
+        }}
+        onSave={handleSaveMeetingModal}
+        initialTitle={meetingContact ? `Follow-up: ${meetingContact.visitor_name}` : ''}
+        isAR={isAR}
+        isDark={isDark}
+        brandColor={brandColor}
+      />
+
       {/* Contact Detail Modal */}
       <Modal
         visible={selectedContact !== null}
@@ -777,7 +939,7 @@ END:VCARD`;
               {selectedContact && (
                 <ScrollView 
                   showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: 20 }}
+                  contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 60 }}
                   keyboardShouldPersistTaps="handled"
                 >
                   {/* Avatar & Name */}
@@ -874,7 +1036,10 @@ END:VCARD`;
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      onPress={() => handleScheduleMeeting(selectedContact)}
+                      onPress={() => {
+                        setSelectedContact(null);
+                        handleScheduleMeeting(selectedContact);
+                      }}
                       style={{
                         flex: 1,
                         flexDirection: 'row',
@@ -891,6 +1056,80 @@ END:VCARD`;
                         {isAR ? 'جدولة اجتماع' : 'Add Meeting'}
                       </Text>
                     </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSelectedContact(null); // Close modal
+                      router.push({
+                        pathname: '/crm-lead',
+                        params: {
+                          id: selectedContact.id,
+                          visitor_name: selectedContact.visitor_name || '',
+                          email: selectedContact.email || '',
+                          phone: selectedContact.phone || '',
+                          company_name: selectedContact.company_name || '',
+                          product_name: selectedContact.product_name || '',
+                          meeting_purpose: selectedContact.meeting_purpose || '',
+                          meeting_date: selectedContact.meeting_date || '',
+                          meeting_status: selectedContact.meeting_status || 'scheduled',
+                          meeting_review: selectedContact.meeting_review || '',
+                          notes: selectedContact.notes || '',
+                          action_type: selectedContact.action_type || 'manual_entry',
+                          card_id: selectedContact.card_id
+                        }
+                      });
+                    }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: brandColor,
+                      paddingVertical: 14,
+                      borderRadius: 12,
+                      gap: 8,
+                      marginBottom: 16
+                    }}
+                  >
+                    <Ionicons name="briefcase" size={18} color="#fff" />
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                      {isAR ? 'تحديث CRM والاجتماعات' : 'CRM Follow-up (Lead Details)'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Status Section */}
+                  <View style={{ marginTop: 16, marginBottom: 8, alignItems: isAR ? 'flex-end' : 'flex-start' }}>
+                    <Text style={{ fontSize: 12, color: subtext, fontWeight: '700', marginBottom: 8 }}>
+                      {isAR ? 'حالة المتابعة' : 'LEAD STATUS'}
+                    </Text>
+                    <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', gap: 6, flexWrap: 'wrap', justifyContent: isAR ? 'flex-start' : 'flex-start' }}>
+                      {[
+                        { val: 'new', lbl: isAR ? 'جديد' : 'New', clr: '#64748B' },
+                        { val: 'in_progress', lbl: isAR ? 'متابعة' : 'In Progress', clr: '#F59E0B' },
+                        { val: 'meeting_scheduled', lbl: isAR ? 'موعد' : 'Meeting', clr: '#3B82F6' },
+                        { val: 'closed', lbl: isAR ? 'مكتملة' : 'Closed', clr: '#10B981' },
+                      ].map((item) => {
+                        const active = leadStatus === item.val;
+                        return (
+                          <TouchableOpacity
+                            key={item.val}
+                            onPress={() => setLeadStatus(item.val)}
+                            style={{
+                              paddingHorizontal: 12,
+                              paddingVertical: 8,
+                              borderRadius: 8,
+                              backgroundColor: active ? item.clr : (isDark ? '#1e293b' : '#f1f5f9'),
+                              borderWidth: 1.5,
+                              borderColor: active ? item.clr : border,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: active ? '#fff' : subtext }}>
+                              {item.lbl}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                   </View>
 
                   {/* Notes Section */}
@@ -983,6 +1222,11 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   iconBtn: { padding: 4 },
+  dashboardBtn: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8, marginRight: 6,
+    paddingHorizontal: 8, paddingVertical: 5,
+  },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',

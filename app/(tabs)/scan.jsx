@@ -46,13 +46,8 @@ export default function ScanScreen() {
               ? 'نحتاج إلى الوصول إلى الكاميرا لمسح رموز DigCard QR.'
               : 'We need camera access to scan DigCard QR codes.'}
           </Text>
-<<<<<<< HEAD
-          <TouchableOpacity style={s.btn} onPress={requestPermission}>
-            <Text style={s.btnText}>Allow Camera</Text>
-=======
           <TouchableOpacity style={[s.btn, { backgroundColor: brandColor }]} onPress={requestPermission}>
             <Text style={s.btnText}>{language === 'ar' ? 'السماح بالكاميرا' : 'Allow Camera'}</Text>
->>>>>>> f546b5a (donr)
           </TouchableOpacity>
         </View>
       </SafeAreaView>

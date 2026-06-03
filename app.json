@@ -23,6 +23,7 @@
       }
     },
     "android": {
+      "versionCode": 9,
       "adaptiveIcon": {
         "foregroundImage": "./assets/appicon.png",
         "backgroundColor": "#FFFFFF"
@@ -36,7 +37,14 @@
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",
         "USE_EXACT_ALARM",
-        "VIBRATE"
+        "VIBRATE",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "READ_CONTACTS",
+        "WRITE_CONTACTS"
       ]
     },
     "web": {
@@ -84,7 +92,20 @@
       ],
       "expo-web-browser",
       "expo-audio",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow ANSOFTT DC to use your location to share with your workspace admin.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow ANSOFTT DC to save new contacts to your phone."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

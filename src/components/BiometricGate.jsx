@@ -1,86 +1,78 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Image,
-  Platform, ActivityIndicator, Animated, AppState,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Animated,
+  Platform,
+  AppState,
+  Image,
 } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
-import { useAppContext } from '@/context/AppContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BRAND = '#1b4654';
 
-/**
- * Wraps the entire app.
- * – Shows biometric lock screen once on app launch if user is logged in and biometric is enrolled.
- * – Skipped automatically right after an interactive login (consumeSkipNextBiometric).
- * – Re-locks when returning from background so opening from app icon requires phone security.
- */
 export default function BiometricGate({ children }) {
   const { token, loading, consumeSkipNextBiometric } = useAuth();
-  const { brandColor } = useAppContext();
+  
+  const [ready, setReady] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [status, setStatus] = useState('idle'); // 'idle' | 'checking' | 'failed'
+  const [bioType, setBioType] = useState('fingerprint'); // 'face' | 'fingerprint'
 
-  const [ready,   setReady]   = useState(false);
-  const [locked,  setLocked]  = useState(false);
-  const [bioType, setBioType] = useState('fingerprint'); // 'fingerprint' | 'face'
-  const [status,  setStatus]  = useState('idle');        // 'idle' | 'checking' | 'failed'
-
-  const bioAvailable  = useRef(false);
-  const inProgress    = useRef(false);
-  const appStateRef   = useRef(AppState.currentState);
+  const bioAvailable = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
   const backgroundAtRef = useRef(0);
-  const pulseAnim     = useRef(new Animated.Value(1)).current;
-  const pulseLoopRef  = useRef(null);
+  const inProgress = useRef(false);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const pulseLoop = useRef(null);
 
-  // ── Pulse animation ────────────────────────────────────────────────────────
+  // ── Pulsing Animation for the Ring ──────────────────────────────────────────
   const startPulse = () => {
-    pulseLoopRef.current?.stop();
-    pulseLoopRef.current = Animated.loop(
+    pulseAnim.setValue(1);
+    pulseLoop.current = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.18, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1,    duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, {
+          toValue: 1.15,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
       ])
     );
-    pulseLoopRef.current.start();
+    pulseLoop.current.start();
   };
 
   const stopPulse = () => {
-    pulseLoopRef.current?.stop();
-    Animated.timing(pulseAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-  };
-
-  const scheduleAuth = () => {
-    if (Platform.OS === 'web') return;
-    if (AppState.currentState !== 'active') return;
-
-    const run = () => {
-      setTimeout(() => {
-        if (AppState.currentState === 'active') {
-          triggerAuth();
-        }
-      }, 250);
-    };
-
-    if (typeof requestIdleCallback === 'function') {
-      requestIdleCallback(run);
-      return;
+    if (pulseLoop.current) {
+      pulseLoop.current.stop();
+      pulseLoop.current = null;
     }
-
-    run();
+    pulseAnim.setValue(1);
   };
 
-  // ── Biometric authentication ───────────────────────────────────────────────
+  // ── Trigger Biometric Auth ───────────────────────────────────────────────
   const triggerAuth = async () => {
-    if (inProgress.current) return;
+    if (inProgress.current || !bioAvailable.current) return;
     inProgress.current = true;
     setStatus('checking');
     startPulse();
 
     try {
+      const bioLabel = bioType === 'face' ? 'Face ID' : 'Fingerprint';
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage:         'Verify your identity to continue',
-        fallbackLabel:         'Use PIN',
-        cancelLabel:           'Cancel',
+        promptMessage: `Unlock ANSOFTT DC with ${bioLabel}`,
+        fallbackLabel: 'Use PIN',
+        cancelLabel: 'Cancel',
         disableDeviceFallback: false,
       });
 
@@ -97,7 +89,6 @@ export default function BiometricGate({ children }) {
       const msg = String(error?.message || '').toLowerCase();
 
       if (msg.includes('current activity is no longer available')) {
-        // Activity can be briefly unavailable during app startup/reload.
         setStatus('idle');
         setTimeout(() => {
           if (AppState.currentState === 'active') {
@@ -112,21 +103,35 @@ export default function BiometricGate({ children }) {
     }
   };
 
-  // ── Boot: check hardware + enrollment once auth loads ─────────────────────
+  // ── Boot & Authentication setup ──────────────────────────────────────────
   useEffect(() => {
     if (loading) return;
 
-    // Not logged in or web → never lock
+    // 1. Not logged in or Web → never lock
     if (!token || Platform.OS === 'web') {
+      setLocked(false);
       setReady(true);
       return;
     }
 
-    // Skip lock once right after interactive login.
-    const skipLock = consumeSkipNextBiometric?.();
+    // 2. Just logged in interactively → skip lock screen
+    if (consumeSkipNextBiometric()) {
+      setLocked(false);
+      setReady(true);
+      return;
+    }
 
+    // 3. Otherwise, check hardware and determine if lock is needed
     (async () => {
       try {
+        const skipOnce = await AsyncStorage.getItem('skip_biometric_once');
+        if (skipOnce === 'true') {
+          await AsyncStorage.removeItem('skip_biometric_once');
+          setLocked(false);
+          setReady(true);
+          return;
+        }
+
         const [hasHW, enrolled, types] = await Promise.all([
           LocalAuthentication.hasHardwareAsync(),
           LocalAuthentication.isEnrolledAsync(),
@@ -135,32 +140,30 @@ export default function BiometricGate({ children }) {
 
         if (hasHW && enrolled) {
           bioAvailable.current = true;
-
           const isFace = types.includes(
             LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION
           );
           setBioType(isFace ? 'face' : 'fingerprint');
-          
-          if (skipLock) {
-            setLocked(false);
-          } else {
-            setLocked(true);
-            scheduleAuth();
-          }
+          setLocked(true);
           setReady(true);
+          
+          // Auto-trigger auth prompt on startup
+          setTimeout(() => {
+            triggerAuth();
+          }, 350);
         } else {
-          // Hardware unavailable or no biometric enrolled → pass through
+          // No hardware or not enrolled
+          setLocked(false);
           setReady(true);
         }
-      } catch {
-        // Never block app rendering if biometric availability check fails.
-        setReady(true);
+      } catch (err) {
         setLocked(false);
+        setReady(true);
       }
     })();
-  }, [loading, token, consumeSkipNextBiometric]);
+  }, [loading, token]);
 
-  // Re-lock whenever app comes back to foreground.
+  // ── Re-lock on coming from background ─────────────────────────────────────
   useEffect(() => {
     if (Platform.OS === 'web') return;
 
@@ -168,46 +171,61 @@ export default function BiometricGate({ children }) {
       const prevState = appStateRef.current;
       appStateRef.current = nextState;
 
-      if (nextState === 'background') {
-        backgroundAtRef.current = Date.now();
+      if (nextState === 'background' || nextState === 'inactive') {
+        // If biometrics are in progress, the background transition is due to the prompt.
+        // We set this to 0 to signal we should ignore the transition when returning active.
+        backgroundAtRef.current = inProgress.current ? 0 : Date.now();
+        
+        // Immediately overlay the lock screen so OS snapshots don't leak sensitive data
+        if (!inProgress.current && token && bioAvailable.current) {
+          setLocked(true);
+        }
       }
 
-      if (!token || !bioAvailable.current || inProgress.current) return;
+      if (!token || !bioAvailable.current) return;
 
-      const cameFromBackground = prevState === 'background';
-
-      if (cameFromBackground && nextState === 'active') {
-        // Ignore very short app-state bounces (permission overlays/system transitions).
-        const elapsed = Date.now() - (backgroundAtRef.current || 0);
-        if (elapsed < 1200) return;
+      if (prevState === 'background' && nextState === 'active') {
+        const bgTime = backgroundAtRef.current;
+        if (bgTime === 0) {
+          // Came back from biometric prompt, ignore this transition to prevent re-locking loops
+          return;
+        }
+        // Ignore short background transitions (e.g. key manager, system prompts) under 30 seconds
+        const elapsed = Date.now() - bgTime;
+        if (elapsed < 30000) {
+          setLocked(false); // unlock if it was just covered for snapshot
+          return;
+        }
 
         setLocked(true);
         setStatus('idle');
-        scheduleAuth();
+        setTimeout(() => {
+          triggerAuth();
+        }, 350);
       }
     });
 
     return () => subscription.remove();
   }, [token]);
 
+  // ── Renders ───────────────────────────────────────────────────────────────
+  if (!ready) return null; // Keep Splash active
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  if (!ready) return null; // SplashScreen is still visible
-
-  const bioIcon  = bioType === 'face' ? 'scan-circle-outline' : 'finger-print-outline';
+  const bioIcon = bioType === 'face' ? 'scan-outline' : 'finger-print-outline';
   const bioLabel = bioType === 'face' ? 'Face ID' : 'Fingerprint';
-
-  const statusLabel =
-    status === 'checking' ? 'Verifying identity...' :
-    status === 'failed'   ? 'Authentication failed' :
-    `Unlock with ${bioLabel}`;
+  let statusLabel = 'Tap to unlock';
+  if (status === 'checking') statusLabel = 'Verifying...';
+  if (status === 'failed') statusLabel = 'Failed';
 
   return (
     <View style={{ flex: 1 }}>
+      {/* ALWAYS render children to preserve state and navigation history! */}
       {children}
+      
+      {/* Overlay the lock screen when locked */}
       {locked && (
-        <View style={[StyleSheet.absoluteFill, styles.screen, { zIndex: 99999, backgroundColor: brandColor }]}>
-          {/* ── Top: logo + name ── */}
+        <View style={[StyleSheet.absoluteFill, styles.screen, { zIndex: 99999, elevation: 99999 }]}>
+          {/* Top Section */}
           <View style={styles.top}>
             <Image
               source={require('../../assets/appicon.png')}
@@ -218,7 +236,7 @@ export default function BiometricGate({ children }) {
             <Text style={styles.appSub}>Digital Business Card</Text>
           </View>
 
-          {/* ── Center: biometric icon ── */}
+          {/* Center Biometric Ring */}
           <View style={styles.center}>
             <Animated.View
               style={[
@@ -234,12 +252,12 @@ export default function BiometricGate({ children }) {
 
             {status === 'failed' && (
               <Text style={styles.errorHint}>
-                Biometric not recognised. Please try again.
+                Biometric not recognized. Please try again.
               </Text>
             )}
           </View>
 
-          {/* ── Bottom: action button ── */}
+          {/* Bottom Button */}
           <View style={styles.bottom}>
             <TouchableOpacity
               style={[styles.btn, status === 'checking' && styles.btnDisabled]}
@@ -274,7 +292,6 @@ export default function BiometricGate({ children }) {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -284,8 +301,6 @@ const styles = StyleSheet.create({
     paddingBottom: 50,
     paddingHorizontal: 32,
   },
-
-  // Top section
   top: { alignItems: 'center' },
   logo: {
     width: 76,
@@ -305,8 +320,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     marginTop: 4,
   },
-
-  // Center section
   center: { alignItems: 'center' },
   iconRing: {
     width: 148,
@@ -336,8 +349,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-
-  // Bottom section
   bottom: { alignItems: 'center', gap: 16 },
   btn: {
     flexDirection: 'row',

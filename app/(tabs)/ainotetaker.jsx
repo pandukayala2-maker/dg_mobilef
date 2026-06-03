@@ -15,15 +15,17 @@ import {
   Animated,
   Keyboard,
   Linking,
+  Share,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
-import { API_BASE_URL, tokenStore } from '@/services/api';
+import { API_BASE_URL, tokenStore, cardsApi } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import AddMeetingModal from '@/components/AddMeetingModal';
+import SwipeableRow from '@/components/SwipeableRow';
 
 const BRAND = '#1b4654';
 const NOTES_KEY_PREFIX = 'digcard_ai_notes';
@@ -152,13 +154,29 @@ function NoteDetailModal({ note, onClose, onScheduleMeeting, isAR, brandColor })
             </TouchableOpacity>
             <TouchableOpacity
               style={det.iconBtn}
-              onPress={() => {
-                import('react-native').then(({ Share }) =>
-                  Share.share({ message: note.transcript || ai?.summary || '' })
-                );
+              onPress={async () => {
+                try {
+                  const title = note.title || 'AI Note';
+                  const summaryText = ai?.summary ? `*Summary:*\n${ai.summary}` : '';
+                  const nextStepsText = ai?.nextSteps?.length > 0 ? `*Next Steps:*\n${ai.nextSteps.join('\n')}` : '';
+                  const transcriptText = note.transcript ? `*Transcript:*\n${note.transcript}` : '';
+                  
+                  let shareMessage = `📝 *${title}*\n\n`;
+                  if (summaryText) shareMessage += `${summaryText}\n\n`;
+                  if (nextStepsText) shareMessage += `${nextStepsText}\n\n`;
+                  if (transcriptText) shareMessage += `${transcriptText}\n\n`;
+                  shareMessage += `Shared via ANSOFTT DC App`;
+
+                  await Share.share({
+                    message: shareMessage,
+                    title: title,
+                  });
+                } catch (error) {
+                  Alert.alert('Error', 'Could not open share dialogue.');
+                }
               }}
             >
-              <Ionicons name="share-outline" size={22} color={brandColor} />
+              <Ionicons name="share-social-outline" size={22} color={brandColor} />
             </TouchableOpacity>
           </View>
         </View>
@@ -580,31 +598,23 @@ export default function AiNotetakerScreen() {
         return;
       }
 
-      const newMeeting = {
-        id: `local_${Date.now()}`,
+      await cardsApi.createMeeting({
         title,
-        time: startDateTime.toISOString(),
         startAt: startDateTime.toISOString(),
         endAt: endDateTime.toISOString(),
         noteText,
-        isLocal: true,
-      };
+      });
 
-      const localRaw = await AsyncStorage.getItem('mycard_local_meetings');
-      const localMeetings = localRaw ? JSON.parse(localRaw) : [];
-      const updated = [newMeeting, ...localMeetings];
-
-      await AsyncStorage.setItem('mycard_local_meetings', JSON.stringify(updated));
       setScheduleModalOpen(false);
       setMeetingToSchedule(null);
 
       Alert.alert(
         isAR ? 'تم الجدولة' : 'Scheduled',
-        isAR ? 'تم حفظ التذكير وجدولته بنجاح في التقويم!' : 'Reminder saved and scheduled in Calendar successfully!'
+        isAR ? 'تم حفظ التذكير وجدولته بنجاح!' : 'Reminder saved and scheduled successfully!'
       );
     } catch (err) {
       console.error(err);
-      Alert.alert('Error', 'Could not save the reminder.');
+      Alert.alert('Error', 'Could not save the reminder to backend. It might be saved locally instead.');
     }
   };
 
@@ -929,49 +939,55 @@ export default function AiNotetakerScreen() {
           </View>
         )}
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[styles.noteItem, { backgroundColor: isDark ? '#1e293b' : '#fff' }]}
-            onPress={() => item.status === 'done' && setSelectedNote(item)}
-            activeOpacity={0.7}
+          <SwipeableRow
+            onDelete={() => handleDeleteNote(item.id)}
+            isAR={isAR}
+            isDark={isDark}
           >
-            <View style={[styles.noteHeader, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-              <Text style={styles.noteTime}>{formatNoteTime(item.createdAt)}</Text>
-              <View style={[styles.noteHeaderRight, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
-                {item.duration ? (
-                  <Text style={styles.noteDuration}>{formatDuration(item.duration)}</Text>
-                ) : null}
-                <TouchableOpacity
-                  onPress={(e) => { e?.stopPropagation?.(); handleDeleteNote(item.id); }}
-                  onPressIn={(e) => e?.stopPropagation?.()}
-                  hitSlop={8}
-                  style={styles.deleteBtn}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#FF4444" />
-                </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.noteItem, { backgroundColor: isDark ? '#1e293b' : '#fff' }]}
+              onPress={() => item.status === 'done' && setSelectedNote(item)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.noteHeader, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+                <Text style={styles.noteTime}>{formatNoteTime(item.createdAt)}</Text>
+                <View style={[styles.noteHeaderRight, { flexDirection: isAR ? 'row-reverse' : 'row' }]}>
+                  {item.duration ? (
+                    <Text style={styles.noteDuration}>{formatDuration(item.duration)}</Text>
+                  ) : null}
+                  <TouchableOpacity
+                    onPress={(e) => { e?.stopPropagation?.(); handleDeleteNote(item.id); }}
+                    onPressIn={(e) => e?.stopPropagation?.()}
+                    hitSlop={8}
+                    style={styles.deleteBtn}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#FF4444" />
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-            <Text style={[styles.noteTitle, { color: textClr, textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>
-              {item.title}
-            </Text>
-            {item.transcript ? (
-              <Text style={[styles.notePreview, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>
-                {item.transcript}
+              <Text style={[styles.noteTitle, { color: textClr, textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>
+                {item.title}
               </Text>
-            ) : null}
-            <View style={[styles.badgeRow, { justifyContent: isAR ? 'flex-end' : 'flex-start' }]}>
-              {item.status === 'processing' ? (
-                <View style={[styles.badge, { backgroundColor: isDark ? '#334155' : '#F2F2F2' }]}>
-                  <ActivityIndicator size={10} color="#888" style={{ marginRight: 4 }} />
-                  <Text style={styles.badgeText}>{isAR ? 'جاري المعالجة' : 'Processing'}</Text>
-                </View>
-              ) : item.ai ? (
-                <View style={[styles.badge, styles.badgeAI, { backgroundColor: isDark ? '#1e3a47' : '#EDF5F3' }]}>
-                  <Ionicons name="sparkles" size={12} color={brandColor} style={{ marginRight: isAR ? 0 : 3, marginLeft: isAR ? 3 : 0 }} />
-                  <Text style={[styles.badgeAIText, { color: brandColor }]}>{isAR ? 'ملخص الذكاء الاصطناعي' : 'AI Summary'}</Text>
-                </View>
+              {item.transcript ? (
+                <Text style={[styles.notePreview, { textAlign: isAR ? 'right' : 'left' }]} numberOfLines={2}>
+                  {item.transcript}
+                </Text>
               ) : null}
-            </View>
-          </TouchableOpacity>
+              <View style={[styles.badgeRow, { justifyContent: isAR ? 'flex-end' : 'flex-start' }]}>
+                {item.status === 'processing' ? (
+                  <View style={[styles.badge, { backgroundColor: isDark ? '#334155' : '#F2F2F2' }]}>
+                    <ActivityIndicator size={10} color="#888" style={{ marginRight: 4 }} />
+                    <Text style={styles.badgeText}>{isAR ? 'جاري المعالجة' : 'Processing'}</Text>
+                  </View>
+                ) : item.ai ? (
+                  <View style={[styles.badge, styles.badgeAI, { backgroundColor: isDark ? '#1e3a47' : '#EDF5F3' }]}>
+                    <Ionicons name="sparkles" size={12} color={brandColor} style={{ marginRight: isAR ? 0 : 3, marginLeft: isAR ? 3 : 0 }} />
+                    <Text style={[styles.badgeAIText, { color: brandColor }]}>{isAR ? 'ملخص الذكاء الاصطناعي' : 'AI Summary'}</Text>
+                  </View>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          </SwipeableRow>
         )}
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: isDark ? '#1e293b' : 'transparent' }]} />}
       />

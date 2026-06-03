@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { I18nManager, Alert, DevSettings, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AppContext = createContext();
 
@@ -47,6 +48,11 @@ export const AppProvider = ({ children }) => {
     // Set RTL configuration so the next app start loads in the correct layout natively
     const isRTL = lang === 'ar';
     I18nManager.forceRTL(isRTL);
+
+    // Set flag to skip biometric authentication on reload
+    try {
+      await AsyncStorage.setItem('skip_biometric_once', 'true');
+    } catch (err) {}
 
     // Force immediate app reload to apply LTR/RTL switch natively
     setTimeout(() => {

@@ -20,7 +20,7 @@ export default function AddMeetingModal({
   onSave,
   initialTitle = '',
   initialNote = '',
-  initialDate = new Date(),
+  initialDate = null,
   isAR = false,
   brandColor = '#1b4654',
   isDark = false,
@@ -56,7 +56,7 @@ export default function AddMeetingModal({
       setTitle(initialTitle);
       setNoteText(initialNote);
 
-      const d = initialDate instanceof Date ? initialDate : new Date(initialDate);
+      const d = initialDate instanceof Date ? initialDate : (initialDate ? new Date(initialDate) : new Date());
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
@@ -68,7 +68,8 @@ export default function AddMeetingModal({
       setShowDatePicker(false);
       setPickerMonth(d);
     }
-  }, [visible, initialTitle, initialNote, initialDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const buildTime = (h, m, ap) =>
     `${h || '10'}:${String(m || '0').padStart(2, '0')} ${ap}`;
@@ -516,6 +517,20 @@ export default function AddMeetingModal({
               )}
             </View>
 
+            {/* Bottom Save Button */}
+            <TouchableOpacity
+              onPress={handleSave}
+              style={[
+                styles.bottomSaveBtn,
+                { backgroundColor: brandColor }
+              ]}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.bottomSaveText}>
+                {isAR ? 'حفظ وجدولة الاجتماع' : 'Save & Schedule Meeting'}
+              </Text>
+            </TouchableOpacity>
+
           </ScrollView>
         </KeyboardAvoidingView>
       </View>
@@ -622,4 +637,23 @@ const styles = StyleSheet.create({
   },
   customInput: { fontSize: 20, fontWeight: '800', minWidth: 60, padding: 0 },
   customUnit: { fontSize: 14, fontWeight: '600' },
+  bottomSaveBtn: {
+    width: '100%',
+    height: 54,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  bottomSaveText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  }
 });

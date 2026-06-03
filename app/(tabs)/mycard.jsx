@@ -19,6 +19,7 @@ import {
   Dimensions,
   ScrollView,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { WebView } from 'react-native-webview';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -28,10 +29,14 @@ import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
-import { useRouter } from 'expo-router';
+import { useRouter, router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL, tokenStore } from '@/services/api';
+import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL, tokenStore, leadsApi } from '@/services/api';
 import { useAppContext } from '@/context/AppContext';
+import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
+
+const BACKGROUND_LOCATION_TASK = 'background-location-task';
 
 const BRAND = '#1b4654';
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -54,12 +59,523 @@ const parseDigCardPath = (value) => {
   return m ? { tenantSlug: m[1], cardSlug: m[2] } : null;
 };
 
+import Svg, { Circle } from 'react-native-svg';
+
+/* ─── Premium Modern Clockwise Rings Chart ─── */
+function ConcentricRingsChart({ views = 0, scans = 0, captured = 0, manual = 0, isDark }) {
+  const total = views + scans + captured + manual;
+  const pctViews = total > 0 ? (views / total) : 0;
+  const pctScans = total > 0 ? (scans / total) : 0;
+  const pctCaptured = total > 0 ? (captured / total) : 0;
+  const pctManual = total > 0 ? (manual / total) : 0;
+
+  const size = 200;
+  const center = size / 2;
+  
+  // Radius of concentric rings
+  const r1 = 80; // Views (Outer)
+  const r2 = 64; // Scans
+  const r3 = 48; // Captured Leads
+  const r4 = 32; // Manual Entries (Inner)
+  
+  // Circumferences
+  const c1 = 2 * Math.PI * r1;
+  const c2 = 2 * Math.PI * r2;
+  const c3 = 2 * Math.PI * r3;
+  const c4 = 2 * Math.PI * r4;
+
+  const strokeWidth = 10;
+  const bgOpacity = isDark ? 0.12 : 0.06;
+
+  // Custom Harmonious Color Palette
+  const colorViews = '#0E7490';    // Cyan/Dark Blue Teal
+  const colorScans = '#10B981';    // Vivid Emerald
+  const colorCaptured = '#3B82F6'; // Indigo Blue
+  const colorManual = '#F59E0B';   // Warm Amber
+
+  return (
+    <View style={{ alignItems: 'center', justifyContent: 'center', marginVertical: 24 }}>
+      <View style={{ position: 'relative', width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          {/* Ring 1 (Views) */}
+          <Circle cx={center} cy={center} r={r1} fill="transparent" stroke={colorViews} strokeWidth={strokeWidth} opacity={bgOpacity} />
+          <Circle
+            cx={center} cy={center} r={r1} fill="transparent" stroke={colorViews} strokeWidth={strokeWidth}
+            strokeDasharray={`${c1} ${c1}`}
+            strokeDashoffset={c1 * (1 - (pctViews || 0.02))} // minimal trail if zero
+            strokeLinecap="round"
+            origin={`${center}, ${center}`}
+            rotation="-90"
+          />
+
+          {/* Ring 2 (Scans) */}
+          <Circle cx={center} cy={center} r={r2} fill="transparent" stroke={colorScans} strokeWidth={strokeWidth} opacity={bgOpacity} />
+          <Circle
+            cx={center} cy={center} r={r2} fill="transparent" stroke={colorScans} strokeWidth={strokeWidth}
+            strokeDasharray={`${c2} ${c2}`}
+            strokeDashoffset={c2 * (1 - (pctScans || 0.02))}
+            strokeLinecap="round"
+            origin={`${center}, ${center}`}
+            rotation="-90"
+          />
+
+          {/* Ring 3 (Captured) */}
+          <Circle cx={center} cy={center} r={r3} fill="transparent" stroke={colorCaptured} strokeWidth={strokeWidth} opacity={bgOpacity} />
+          <Circle
+            cx={center} cy={center} r={r3} fill="transparent" stroke={colorCaptured} strokeWidth={strokeWidth}
+            strokeDasharray={`${c3} ${c3}`}
+            strokeDashoffset={c3 * (1 - (pctCaptured || 0.02))}
+            strokeLinecap="round"
+            origin={`${center}, ${center}`}
+            rotation="-90"
+          />
+
+          {/* Ring 4 (Manual) */}
+          <Circle cx={center} cy={center} r={r4} fill="transparent" stroke={colorManual} strokeWidth={strokeWidth} opacity={bgOpacity} />
+          <Circle
+            cx={center} cy={center} r={r4} fill="transparent" stroke={colorManual} strokeWidth={strokeWidth}
+            strokeDasharray={`${c4} ${c4}`}
+            strokeDashoffset={c4 * (1 - (pctManual || 0.02))}
+            strokeLinecap="round"
+            origin={`${center}, ${center}`}
+            rotation="-90"
+          />
+        </Svg>
+
+        {/* Center content */}
+        <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 26, fontWeight: '900', color: isDark ? '#FFFFFF' : '#1E293B', letterSpacing: -0.5 }}>
+            {total}
+          </Text>
+          <Text style={{ fontSize: 9, fontWeight: '700', color: isDark ? '#94A3B8' : '#64748B', textTransform: 'uppercase', marginTop: 2, letterSpacing: 0.5 }}>
+            Interactions
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/* ─── Analytics Page ─── */
+function AnalyticsScreen({ onBack, user, isAR, isDark, brandColor }) {
+  const [stats, setStats] = useState({ views: 0, qr_scans: 0, shares: 0, leads: 0 });
+  const [leads, setLeads] = useState([]);
+  const [filteredLeads, setFilteredLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterType, setFilterType] = useState('all'); // 'all', 'today', 'week', 'month', 'custom'
+  const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 3600000));
+  const [endDate, setEndDate] = useState(new Date());
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+
+  const fetchStats = async () => {
+    setLoading(true);
+    try {
+      if (user?.role === 'card_user') {
+        const [cardRes, leadsRes] = await Promise.all([
+          cardsApi.getMyCard().catch(() => null),
+          leadsApi.getAll().catch(() => ({ data: [] }))
+        ]);
+        const cardData = cardRes?.data || {};
+        const allLeads = Array.isArray(leadsRes.data) ? leadsRes.data : leadsRes.data?.leads || [];
+        setStats({
+          views: cardData.stats?.views || 0,
+          qr_scans: cardData.stats?.qr_scans || 0,
+          shares: cardData.stats?.shares || 0,
+          leads: allLeads.length
+        });
+        setLeads(allLeads);
+      } else {
+        const [cardsRes, leadsRes] = await Promise.all([
+          cardsApi.getAll().catch(() => ({ data: [] })),
+          leadsApi.getAll().catch(() => ({ data: [] }))
+        ]);
+        const cards = Array.isArray(cardsRes.data) ? cardsRes.data : cardsRes.data?.cards || [];
+        const allLeads = Array.isArray(leadsRes.data) ? leadsRes.data : leadsRes.data?.leads || [];
+        
+        let totalViews = 0;
+        let totalScans = 0;
+        let totalShares = 0;
+        cards.forEach(c => {
+          totalViews += (c.views || 0);
+          totalScans += (c.qr_scans || 0);
+          totalShares += (c.contact_shares || 0);
+        });
+        
+        setStats({
+          views: totalViews,
+          qr_scans: totalScans,
+          shares: totalShares,
+          leads: allLeads.length
+        });
+        setLeads(allLeads);
+      }
+    } catch (err) {
+      console.warn('[fetchStats AnalyticsScreen]', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  useEffect(() => {
+    if (!leads.length) {
+      setFilteredLeads([]);
+      return;
+    }
+    
+    let result = [...leads];
+    const now = new Date();
+    
+    if (filterType === 'today') {
+      const todayStr = now.toDateString();
+      result = leads.filter(l => new Date(l.created_at).toDateString() === todayStr);
+    } else if (filterType === 'week') {
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 3600000);
+      result = leads.filter(l => new Date(l.created_at) >= oneWeekAgo);
+    } else if (filterType === 'month') {
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      result = leads.filter(l => {
+        const d = new Date(l.created_at);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      });
+    } else if (filterType === 'custom') {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      result = leads.filter(l => {
+        const d = new Date(l.created_at);
+        return d >= start && d <= end;
+      });
+    }
+    
+    setFilteredLeads(result);
+  }, [leads, filterType, startDate, endDate]);
+
+  const bg = isDark ? '#0F172A' : '#F8FAFC';
+  const cardBg = isDark ? '#1E293B' : '#FFFFFF';
+  const text = isDark ? '#F8FAFC' : '#1A1A1A';
+  const subtext = isDark ? '#94A3B8' : '#64748B';
+  const divider = isDark ? '#334155' : '#F1F5F9';
+  const rowDir = isAR ? 'row-reverse' : 'row';
+  const txtAlign = isAR ? 'right' : 'left';
+
+  const formatDateLabel = (d) => {
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  };
+
+  const activeLeads = filterType === 'all' ? leads : filteredLeads;
+  const activeCapturedCount = activeLeads.filter(l => l.action_type !== 'manual_entry').length;
+  const activeManualCount = activeLeads.filter(l => l.action_type === 'manual_entry').length;
+  const activeTotalLeads = activeCapturedCount + activeManualCount;
+
+  return (
+    <View style={[sub.container, { backgroundColor: bg }]}>
+      <SubHeader
+        onBack={onBack}
+        title={isAR ? 'إحصائيات البطاقة' : 'Card Analytics'}
+        onSend={fetchStats}
+        sendLabel={isAR ? 'تحديث' : 'REFRESH'}
+        isAR={isAR}
+      />
+      
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+        {/* Date Filter Segmented Control */}
+        <View style={{ flexDirection: rowDir, justifyContent: 'space-between', marginBottom: 20, gap: 4 }}>
+          {['all', 'today', 'week', 'month', 'custom'].map((type) => {
+            const active = filterType === type;
+            let label = 'All';
+            if (type === 'today') label = isAR ? 'اليوم' : 'Today';
+            if (type === 'week') label = isAR ? 'أسبوع' : 'Weekly';
+            if (type === 'month') label = isAR ? 'شهري' : 'Monthly';
+            if (type === 'custom') label = isAR ? 'مخصص' : 'Range';
+
+            return (
+              <TouchableOpacity
+                key={type}
+                onPress={() => setFilterType(type)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  backgroundColor: active ? brandColor : cardBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderWidth: 1,
+                  borderColor: active ? brandColor : divider,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? '#fff' : subtext }}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Custom Range picker buttons */}
+        {filterType === 'custom' && (
+          <View style={{ flexDirection: rowDir, gap: 12, marginBottom: 20 }}>
+            <TouchableOpacity
+              onPress={() => setShowStartPicker(true)}
+              style={{ flex: 1, backgroundColor: cardBg, padding: 12, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: divider }}
+            >
+              <Text style={{ fontSize: 10, color: subtext }}>{isAR ? 'من تاريخ' : 'START DATE'}</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: text, marginTop: 4 }}>{formatDateLabel(startDate)}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowEndPicker(true)}
+              style={{ flex: 1, backgroundColor: cardBg, padding: 12, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: divider }}
+            >
+              <Text style={{ fontSize: 10, color: subtext }}>{isAR ? 'إلى تاريخ' : 'END DATE'}</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: text, marginTop: 4 }}>{formatDateLabel(endDate)}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Date Pickers */}
+        {showStartPicker && (
+          <DateTimePicker
+            value={startDate}
+            mode="date"
+            display="default"
+            maximumDate={new Date()}
+            onChange={(e, d) => { setShowStartPicker(false); if (d) setStartDate(d); }}
+          />
+        )}
+        {showEndPicker && (
+          <DateTimePicker
+            value={endDate}
+            mode="date"
+            display="default"
+            maximumDate={new Date()}
+            onChange={(e, d) => { setShowEndPicker(false); if (d) setEndDate(d); }}
+          />
+        )}
+
+        {loading ? (
+          <ActivityIndicator color={brandColor} size="large" style={{ marginTop: 40 }} />
+        ) : (
+          <>
+            {/* Clockwise Circular Concentric Graph */}
+            <View style={{ backgroundColor: cardBg, padding: 16, borderRadius: 24, alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: divider }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: text, marginBottom: 10 }}>{isAR ? 'توزيع الأنشطة' : 'Activity Breakdown'}</Text>
+              <ConcentricRingsChart views={stats.views} scans={stats.qr_scans} captured={activeCapturedCount} manual={activeManualCount} isDark={isDark} />
+              
+              {/* Legend */}
+              <View style={{ flexDirection: rowDir, justifyContent: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#0E7490' }} />
+                  <Text style={{ fontSize: 11, color: subtext }}>{isAR ? 'زيارات' : 'Views'}</Text>
+                </View>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#10B981' }} />
+                  <Text style={{ fontSize: 11, color: subtext }}>{isAR ? 'مسح QR' : 'QR Scans'}</Text>
+                </View>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#3B82F6' }} />
+                  <Text style={{ fontSize: 11, color: subtext }}>{isAR ? 'جهات الاتصال' : 'Captured'}</Text>
+                </View>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#F59E0B' }} />
+                  <Text style={{ fontSize: 11, color: subtext }}>{isAR ? 'يدوي' : 'Manual'}</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Individual Detailed Cards */}
+            <View style={{ gap: 12 }}>
+              {/* Card Views */}
+              <View style={{ backgroundColor: cardBg, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: divider, flexDirection: rowDir, alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 12, flex: 1 }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(27, 70, 84, 0.1)', justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="eye-outline" size={22} color="#1b4654" />
+                  </View>
+                  <View style={{ alignItems: txtAlign, flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: text }}>{isAR ? 'زيارات البطاقة' : 'Card Views'}</Text>
+                    <Text style={{ fontSize: 11, color: subtext }}>{isAR ? 'إجمالي عدد مرات فتح الرابط' : 'Total times card link was opened'}</Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: text, marginLeft: 8 }}>{stats.views}</Text>
+              </View>
+
+              {/* QR Scans */}
+              <View style={{ backgroundColor: cardBg, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: divider, flexDirection: rowDir, alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 12, flex: 1 }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(13, 155, 110, 0.1)', justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="qr-code-outline" size={22} color="#0d9b6e" />
+                  </View>
+                  <View style={{ alignItems: txtAlign, flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: text }}>{isAR ? 'مسح رمز QR' : 'QR Scans'}</Text>
+                    <Text style={{ fontSize: 11, color: subtext }}>{isAR ? 'إجمالي عدد مرات مسح الكود' : 'Total times QR code was scanned'}</Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: text, marginLeft: 8 }}>{stats.qr_scans}</Text>
+              </View>
+
+              {/* Captured Leads (Online) */}
+              <View style={{ backgroundColor: cardBg, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: divider, flexDirection: rowDir, alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 12, flex: 1 }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(59, 130, 246, 0.1)', justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="people-outline" size={22} color="#3b82f6" />
+                  </View>
+                  <View style={{ alignItems: txtAlign, flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: text }}>{isAR ? 'جهات الاتصال الملتقطة' : 'Captured Leads'}</Text>
+                    <Text style={{ fontSize: 11, color: subtext }}>
+                      {filterType === 'all' 
+                        ? (isAR ? 'مسجلة عبر رمز الاستجابة أو النموذج' : 'Registered via QR scan or form')
+                        : (isAR ? `المصفاة للمدة المحددة` : 'Filtered online contacts')}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: text, marginLeft: 8 }}>{activeCapturedCount}</Text>
+              </View>
+
+              {/* Manually Added Leads */}
+              <View style={{ backgroundColor: cardBg, padding: 16, borderRadius: 20, borderWidth: 1, borderColor: divider, flexDirection: rowDir, alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 12, flex: 1 }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(245, 158, 11, 0.1)', justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="person-add-outline" size={22} color="#f59e0b" />
+                  </View>
+                  <View style={{ alignItems: txtAlign, flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: text }}>{isAR ? 'مضافة يدويًا' : 'Manual Contacts'}</Text>
+                    <Text style={{ fontSize: 11, color: subtext }}>
+                      {filterType === 'all' 
+                        ? (isAR ? 'جهات اتصال مضافة يدويًا من قبلك' : 'Contacts added manually by you')
+                        : (isAR ? `المصفاة للمدة المحددة` : 'Filtered manual contacts')}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: text, marginLeft: 8 }}>{activeManualCount}</Text>
+              </View>
+            </View>
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
 /* ─── Sidebar Drawer ─── */
-function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
+function SidebarDrawer({
+  visible, onClose, user, onLogout, avatarUrl, onOpenAnalytics,
+  onOpenLocationMap, isLocationSharing, onToggleLocationSharing
+}) {
   const { isDark, toggleTheme, language, changeLanguage } = useAppContext();
   const isRTL = language === 'ar';
   const hiddenOffset = -SCREEN_WIDTH * 0.78;
   const translateX = useState(new Animated.Value(hiddenOffset))[0];
+
+  // Analytics states
+  const [stats, setStats] = useState({ views: 0, qr_scans: 0, shares: 0, leads: 0 });
+  const [leads, setLeads] = useState([]);
+  const [filteredLeads, setFilteredLeads] = useState([]);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [filterType, setFilterType] = useState('all'); // 'all', 'today', 'week', 'month', 'custom'
+  const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 3600000));
+  const [endDate, setEndDate] = useState(new Date());
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+
+  // Fetch stats and leads on visible
+  const fetchStats = async () => {
+    setLoadingStats(true);
+    try {
+      if (user?.role === 'card_user') {
+        const [cardRes, leadsRes] = await Promise.all([
+          cardsApi.getMyCard().catch(() => null),
+          leadsApi.getAll().catch(() => ({ data: [] }))
+        ]);
+        const cardData = cardRes?.data || {};
+        const allLeads = Array.isArray(leadsRes.data) ? leadsRes.data : leadsRes.data?.leads || [];
+        setStats({
+          views: cardData.stats?.views || 0,
+          qr_scans: cardData.stats?.qr_scans || 0,
+          shares: cardData.stats?.shares || 0,
+          leads: allLeads.length
+        });
+        setLeads(allLeads);
+      } else {
+        const [cardsRes, leadsRes] = await Promise.all([
+          cardsApi.getAll().catch(() => ({ data: [] })),
+          leadsApi.getAll().catch(() => ({ data: [] }))
+        ]);
+        const cards = Array.isArray(cardsRes.data) ? cardsRes.data : cardsRes.data?.cards || [];
+        const allLeads = Array.isArray(leadsRes.data) ? leadsRes.data : leadsRes.data?.leads || [];
+        
+        let totalViews = 0;
+        let totalScans = 0;
+        let totalShares = 0;
+        cards.forEach(c => {
+          totalViews += (c.views || 0);
+          totalScans += (c.qr_scans || 0);
+          totalShares += (c.contact_shares || 0);
+        });
+        
+        setStats({
+          views: totalViews,
+          qr_scans: totalScans,
+          shares: totalShares,
+          leads: allLeads.length
+        });
+        setLeads(allLeads);
+      }
+    } catch (err) {
+      console.warn('[fetchStats Sidebar Drawer]', err);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  useEffect(() => {
+    if (visible) {
+      fetchStats();
+    }
+  }, [visible]);
+
+  // Apply filters on leads when type or dates change
+  useEffect(() => {
+    if (!leads.length) {
+      setFilteredLeads([]);
+      return;
+    }
+    
+    let result = [...leads];
+    const now = new Date();
+    
+    if (filterType === 'today') {
+      const todayStr = now.toDateString();
+      result = leads.filter(l => new Date(l.created_at).toDateString() === todayStr);
+    } else if (filterType === 'week') {
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 3600000);
+      result = leads.filter(l => new Date(l.created_at) >= oneWeekAgo);
+    } else if (filterType === 'month') {
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      result = leads.filter(l => {
+        const d = new Date(l.created_at);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      });
+    } else if (filterType === 'custom') {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      result = leads.filter(l => {
+        const d = new Date(l.created_at);
+        return d >= start && d <= end;
+      });
+    }
+    
+    setFilteredLeads(result);
+  }, [leads, filterType, startDate, endDate]);
 
   // Reset to correct side whenever direction changes while drawer is closed
   useEffect(() => {
@@ -80,20 +596,28 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
   const displayName = isAR && user?.name_ar ? user.name_ar : (user?.name || 'User');
   const initials = (displayName || 'U').split(' ').slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('');
   const bg = isDark ? '#1E293B' : '#fff';
+  const cardBg = isDark ? '#0F172A' : '#F8FAFC';
   const text = isDark ? '#F8FAFC' : '#1A1A1A';
   const subtext = isDark ? '#94A3B8' : '#64748B';
   const divider = isDark ? '#334155' : '#F0F0F0';
 
   const panelPos = { left: 0 };
-  const rowDir = 'row';
-  const iconMargin = { marginRight: 14 };
-  const txtAlign = 'left';
+  const rowDir = isRTL ? 'row-reverse' : 'row';
+  const iconMargin = isRTL ? { marginLeft: 14 } : { marginRight: 14 };
+  const txtAlign = isRTL ? 'right' : 'left';
+
+  const formatDateLabel = (d) => {
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  };
+
+  const activeLeads = filterType === 'all' ? leads : filteredLeads;
+  const activeCapturedCount = activeLeads.filter(l => l.action_type !== 'manual_entry').length;
+  const activeManualCount = activeLeads.filter(l => l.action_type === 'manual_entry').length;
 
   return (
     <Modal transparent animationType="none" onRequestClose={onClose}>
       <TouchableOpacity style={sd.backdrop} activeOpacity={1} onPress={onClose} />
       <Animated.View style={[sd.panel, panelPos, { transform: [{ translateX }], shadowOffset: { width: isRTL ? -4 : 4, height: 0 } }]}>
-        {/* SafeAreaView bg = BRAND so status-bar inset area matches profile header */}
         <SafeAreaView style={{ flex: 1, backgroundColor: BRAND }}>
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -111,16 +635,171 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
               <Text style={[sd.email, { textAlign: txtAlign }]} numberOfLines={1}>{user?.email || ''}</Text>
             </View>
 
+            {/* 📈 Analytics Section */}
+            <View style={{ padding: 16 }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: BRAND, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 12, textAlign: txtAlign }}>
+                {isAR ? 'التحليلات والإحصائيات' : 'ANALYTICS & STATS'}
+              </Text>
+              
+              {/* Date Filter Buttons */}
+              <View style={{ flexDirection: rowDir, justifyContent: 'space-between', marginBottom: 12, gap: 4 }}>
+                {['all', 'today', 'week', 'month', 'custom'].map((type) => {
+                  const active = filterType === type;
+                  let label = 'All';
+                  if (type === 'today') label = isAR ? 'اليوم' : 'Today';
+                  if (type === 'week') label = isAR ? 'أسبوع' : 'Weekly';
+                  if (type === 'month') label = isAR ? 'شهري' : 'Monthly';
+                  if (type === 'custom') label = isAR ? 'مخصص' : 'Range';
+
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      onPress={() => setFilterType(type)}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        borderRadius: 10,
+                        backgroundColor: active ? BRAND : (isDark ? '#334155' : '#F1F5F9'),
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: active ? '#fff' : (isDark ? '#94A3B8' : '#64748B') }}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Custom Date Inputs */}
+              {filterType === 'custom' && (
+                <View style={{ flexDirection: rowDir, gap: 10, marginBottom: 14 }}>
+                  <TouchableOpacity
+                    onPress={() => setShowStartPicker(true)}
+                    style={{ flex: 1, backgroundColor: cardBg, padding: 10, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: divider }}
+                  >
+                    <Text style={{ fontSize: 10, color: subtext }}>{isAR ? 'من تاريخ' : 'START DATE'}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: text, marginTop: 2 }}>{formatDateLabel(startDate)}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setShowEndPicker(true)}
+                    style={{ flex: 1, backgroundColor: cardBg, padding: 10, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: divider }}
+                  >
+                    <Text style={{ fontSize: 10, color: subtext }}>{isAR ? 'إلى تاريخ' : 'END DATE'}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: text, marginTop: 2 }}>{formatDateLabel(endDate)}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Native Date Pickers */}
+              {showStartPicker && (
+                <DateTimePicker
+                  value={startDate}
+                  mode="date"
+                  display="default"
+                  maximumDate={new Date()}
+                  onChange={(e, date) => {
+                    setShowStartPicker(false);
+                    if (date) setStartDate(date);
+                  }}
+                />
+              )}
+              {showEndPicker && (
+                <DateTimePicker
+                  value={endDate}
+                  mode="date"
+                  display="default"
+                  maximumDate={new Date()}
+                  onChange={(e, date) => {
+                    setShowEndPicker(false);
+                    if (date) setEndDate(date);
+                  }}
+                />
+              )}
+
+              {/* Stats Cards */}
+              {loadingStats ? (
+                <ActivityIndicator color={BRAND} style={{ marginVertical: 20 }} />
+              ) : (
+                <View style={{ gap: 8 }}>
+                  <View style={{ flexDirection: rowDir, gap: 8 }}>
+                    {/* View Scans Card */}
+                    <View style={{ flex: 1, backgroundColor: cardBg, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: divider, alignItems: 'center' }}>
+                      <Ionicons name="eye-outline" size={18} color={BRAND} style={{ marginBottom: 4 }} />
+                      <Text style={{ fontSize: 9, fontWeight: '600', color: subtext, textAlign: 'center' }}>{isAR ? 'الزيارات' : 'CARD VIEWS'}</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: text, marginTop: 4 }}>
+                        {stats.views}
+                      </Text>
+                    </View>
+                    
+                    {/* QR Scans Card */}
+                    <View style={{ flex: 1, backgroundColor: cardBg, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: divider, alignItems: 'center' }}>
+                      <Ionicons name="qr-code-outline" size={18} color="#0d9b6e" style={{ marginBottom: 4 }} />
+                      <Text style={{ fontSize: 9, fontWeight: '600', color: subtext, textAlign: 'center' }}>{isAR ? 'مسح QR' : 'QR SCANS'}</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: text, marginTop: 4 }}>
+                        {stats.qr_scans}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Captured Leads Card */}
+                  <View style={{ backgroundColor: cardBg, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: divider, flexDirection: rowDir, alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 10, flex: 1 }}>
+                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(59, 130, 246, 0.1)', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="people-outline" size={16} color="#3b82f6" />
+                      </View>
+                      <View style={{ alignItems: txtAlign, flex: 1 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '600', color: subtext }}>{isAR ? 'الملتقطة أونلاين' : 'CAPTURED LEADS'}</Text>
+                        <Text style={{ fontSize: 11, color: subtext, marginTop: 1 }} numberOfLines={1}>
+                          {isAR ? 'عبر النموذج أو QR' : 'Via form or QR'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: text, marginLeft: 6 }}>
+                      {activeCapturedCount}
+                    </Text>
+                  </View>
+
+                  {/* Manual Leads Card */}
+                  <View style={{ backgroundColor: cardBg, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: divider, flexDirection: rowDir, alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: rowDir, alignItems: 'center', gap: 10, flex: 1 }}>
+                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(245, 158, 11, 0.1)', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="person-add-outline" size={16} color="#f59e0b" />
+                      </View>
+                      <View style={{ alignItems: txtAlign, flex: 1 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '600', color: subtext }}>{isAR ? 'الملقنة يدويًا' : 'MANUAL CONTACTS'}</Text>
+                        <Text style={{ fontSize: 11, color: subtext, marginTop: 1 }} numberOfLines={1}>
+                          {isAR ? 'جهات اتصال مدخلة' : 'Manually inputted contacts'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: text, marginLeft: 6 }}>
+                      {activeManualCount}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
             <View style={[sd.divider, { backgroundColor: divider }]} />
 
             <View style={sd.menu}>
-              {/* My Card */}
-              <TouchableOpacity style={[sd.menuItem, { flexDirection: rowDir }]} onPress={onClose}>
-                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#EDF5F3' }]}>
-                  <Ionicons name="card-outline" size={20} color={isDark ? '#4DD0E1' : BRAND} />
+
+
+              {/* Analytics */}
+              <TouchableOpacity
+                style={[sd.menuItem, { flexDirection: rowDir }]}
+                onPress={() => {
+                  onClose();
+                  if (onOpenAnalytics) onOpenAnalytics();
+                }}
+              >
+                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isDark ? 'rgba(27,70,84,0.2)' : '#EDF5F3' }]}>
+                  <Ionicons name="stats-chart-outline" size={20} color={isDark ? '#4DD0E1' : BRAND} />
                 </View>
                 <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: txtAlign }]}>
-                  {language === 'ar' ? 'بطاقتي' : 'My Card'}
+                  {language === 'ar' ? 'التحليلات' : 'Analytics'}
                 </Text>
               </TouchableOpacity>
 
@@ -171,6 +850,40 @@ function SidebarDrawer({ visible, onClose, user, onLogout, avatarUrl }) {
                   {language === 'ar' ? 'الدعم الفني' : 'Support'}
                 </Text>
               </TouchableOpacity>
+
+              {/* Share Location */}
+              <View style={[sd.menuItem, { flexDirection: rowDir }]}>
+                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isLocationSharing ? 'rgba(16,185,129,0.15)' : (isDark ? 'rgba(255,255,255,0.1)' : '#EDF5F3') }]}>
+                  <Ionicons name="location-outline" size={20} color={isLocationSharing ? '#10B981' : (isDark ? '#4DD0E1' : BRAND)} />
+                </View>
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: txtAlign }]}>
+                  {language === 'ar' ? 'مشاركة الموقع' : 'Share Location'}
+                </Text>
+                <Switch
+                  value={isLocationSharing}
+                  onValueChange={onToggleLocationSharing}
+                  trackColor={{ false: '#CBD5E1', true: '#10B981' }}
+                  thumbColor="#fff"
+                />
+              </View>
+
+
+
+              {/* Generate Lead */}
+              <TouchableOpacity
+                style={[sd.menuItem, { flexDirection: rowDir }]}
+                onPress={() => {
+                  onClose();
+                  router.push('/(tabs)/contacts?add=true');
+                }}
+              >
+                <View style={[sd.menuIcon, iconMargin, { backgroundColor: isDark ? 'rgba(59,130,246,0.15)' : '#EDF5F3' }]}>
+                  <Ionicons name="person-add-outline" size={20} color={isDark ? '#3b82f6' : BRAND} />
+                </View>
+                <Text style={[sd.menuLabel, { flex: 1, color: text, textAlign: txtAlign }]}>
+                  {language === 'ar' ? 'إضافة عميل' : 'Generate Lead'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
 
@@ -209,6 +922,7 @@ function SubHeader({ onBack, title, onSend, sendLabel, isAR }) {
     <View style={[sub.header, {
       paddingTop: Math.max(insets.top, 16) + 8,
       flexDirection: isAR ? 'row-reverse' : 'row',
+      backgroundColor: BRAND,
     }]}>
       <TouchableOpacity
         onPress={onBack}
@@ -568,6 +1282,253 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
   );
 }
 
+/* ─── Admin Location Map Page ─── */
+function AdminMapScreen({ onBack, user, isAR, isDark }) {
+  const [cards, setCards] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const webViewRef = useRef(null);
+
+  const fetchLocations = async () => {
+    setLoading(true);
+    try {
+      const { data } = await cardsApi.getAll();
+      const list = Array.isArray(data) ? data : data?.cards || [];
+      const activeLocations = list.filter(c => c.latitude && c.longitude);
+      setCards(activeLocations);
+    } catch (err) {
+      console.warn('[fetchLocations Map]', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLocations();
+  }, []);
+
+  useEffect(() => {
+    if (!loading && webViewRef.current && cards.length > 0) {
+      const js = `if (window.updateMarkers) { window.updateMarkers(${JSON.stringify(cards)}); }`;
+      setTimeout(() => {
+        webViewRef.current?.injectJavaScript(js);
+      }, 1000);
+    }
+  }, [cards, loading]);
+
+  const mapHtml = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+      html, body, #map { height: 100%; margin: 0; padding: 0; background-color: ${isDark ? '#0f172a' : '#f3f4f6'}; }
+      .custom-popup { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .popup-title { font-weight: 700; font-size: 14px; color: #1e293b; margin-bottom: 2px; }
+      .popup-sub { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+      .popup-time { font-size: 10px; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script>
+      var map = L.map('map').setView([29.3759, 47.9774], 10);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      var markers = [];
+
+      window.updateMarkers = function(cardList) {
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+        var bounds = [];
+
+        cardList.forEach(function(card) {
+          if (card.latitude && card.longitude) {
+            var lat = parseFloat(card.latitude);
+            var lng = parseFloat(card.longitude);
+            bounds.push([lat, lng]);
+
+            var popupContent = '<div class="custom-popup">' +
+              '<div class="popup-title">' + (card.name || 'Unknown') + '</div>' +
+              (card.title ? '<div class="popup-sub">' + card.title + '</div>' : '') +
+              '<div class="popup-time">Last active: ' + new Date(card.location_updated_at || Date.now()).toLocaleTimeString() + '</div>' +
+              '</div>';
+
+            var m = L.marker([lat, lng]).addTo(map).bindPopup(popupContent);
+            markers.push(m);
+          }
+        });
+
+        if (bounds.length > 0) {
+          map.fitBounds(bounds, { padding: [50, 50] });
+        }
+      };
+    </script>
+  </body>
+  </html>
+  `;
+
+  return (
+    <View style={[sub.container, { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' }]}>
+      <SubHeader
+        onBack={onBack}
+        title={isAR ? 'خريطة تتبع الموظفين' : 'Employee Map Tracking'}
+        onSend={fetchLocations}
+        sendLabel={isAR ? 'تحديث' : 'REFRESH'}
+        isAR={isAR}
+      />
+
+      {loading ? (
+        <ActivityIndicator style={{ flex: 1 }} color={BRAND} size="large" />
+      ) : cards.length === 0 ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+          <Ionicons name="map-outline" size={64} color={BRAND} style={{ opacity: 0.3, marginBottom: 16 }} />
+          <Text style={{ fontSize: 16, fontWeight: '700', color: isDark ? '#fff' : '#111827', textAlign: 'center', marginBottom: 8 }}>
+            {isAR ? 'لا توجد بيانات موقع نشطة' : 'No Active Locations'}
+          </Text>
+          <Text style={{ fontSize: 13, color: '#64748B', textAlign: 'center', lineHeight: 20 }}>
+            {isAR ? 'لم يقم أي موظف بتشغيل مشاركة الموقع بعد.' : 'No employees are sharing their location currently.'}
+          </Text>
+        </View>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <WebView
+            ref={webViewRef}
+            source={{ html: mapHtml }}
+            style={{ flex: 1 }}
+            javaScriptEnabled
+            domStorageEnabled
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/* ─── Card Selector Modal (Admin Only) ─── */
+function CardSelectorModal({ visible, onClose, cards, onSelect, selectedCardId, isAR }) {
+  const [search, setSearch] = useState('');
+  const filtered = cards.filter(c => {
+    const q = search.toLowerCase();
+    return (c.name || '').toLowerCase().includes(q) || (c.name_ar || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q);
+  });
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+        <View style={{
+          backgroundColor: '#fff',
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          height: '75%',
+          paddingTop: 16,
+          paddingHorizontal: 20
+        }}>
+          {/* Header */}
+          <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>
+              {isAR ? 'اختر بطاقة للمعاينة' : 'Select Card to Preview'}
+            </Text>
+            <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
+              <Ionicons name="close" size={24} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Input */}
+          <View style={{
+            flexDirection: isAR ? 'row-reverse' : 'row',
+            alignItems: 'center',
+            backgroundColor: '#F3F4F6',
+            borderRadius: 12,
+            paddingHorizontal: 12,
+            marginBottom: 16,
+            height: 46
+          }}>
+            <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: isAR ? 0 : 8, marginLeft: isAR ? 8 : 0 }} />
+            <TextInput
+              style={{ flex: 1, fontSize: 15, color: '#1F2937', textAlign: isAR ? 'right' : 'left' }}
+              placeholder={isAR ? 'البحث بالاسم...' : 'Search by name...'}
+              placeholderTextColor="#94A3B8"
+              value={search}
+              onChangeText={setSearch}
+            />
+          </View>
+
+          {/* Cards List */}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+            {filtered.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: '#94A3B8', marginTop: 32 }}>
+                {isAR ? 'لا توجد نتائج' : 'No cards found.'}
+              </Text>
+            ) : (
+              filtered.map((item) => {
+                const isSelected = String(item.id) === String(selectedCardId);
+                const title = item.job_title || item.title || '';
+                const name = isAR && item.name_ar ? item.name_ar : (item.name || 'No Name');
+                const avatar = item.profile_image ? resolveUrl(item.profile_image) : null;
+                const initials = (name || 'U').charAt(0).toUpperCase();
+
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => {
+                      onSelect(item);
+                      onClose();
+                    }}
+                    style={{
+                      flexDirection: isAR ? 'row-reverse' : 'row',
+                      alignItems: 'center',
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      borderRadius: 14,
+                      marginBottom: 10,
+                      backgroundColor: isSelected ? 'rgba(27, 70, 84, 0.08)' : '#F9FAFB',
+                      borderWidth: 1.5,
+                      borderColor: isSelected ? '#1b4654' : 'transparent',
+                    }}
+                  >
+                    {/* Avatar */}
+                    {avatar ? (
+                      <Image source={{ uri: avatar }} style={{ width: 44, height: 44, borderRadius: 22, marginRight: isAR ? 0 : 12, marginLeft: isAR ? 12 : 0 }} />
+                    ) : (
+                      <View style={{
+                        width: 44, height: 44, borderRadius: 22,
+                        backgroundColor: isSelected ? '#1b4654' : '#E5E7EB',
+                        justifyContent: 'center', alignItems: 'center',
+                        marginRight: isAR ? 0 : 12, marginLeft: isAR ? 12 : 0
+                      }}>
+                        <Text style={{ fontSize: 16, fontWeight: '700', color: isSelected ? '#fff' : '#6B7280' }}>
+                          {initials}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Details */}
+                    <View style={{ flex: 1, alignItems: isAR ? 'flex-end' : 'flex-start' }}>
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: '#1F2937' }}>{name}</Text>
+                      {title ? <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{title}</Text> : null}
+                    </View>
+
+                    {/* Selected Checkmark */}
+                    {isSelected && (
+                      <Ionicons name="checkmark-circle" size={22} color="#1b4654" />
+                    )}
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 /* ═══════════════════════════════ Main Screen ═══════════════════════════════ */
 export default function MyCardScreen() {
   const { user, token, logout } = useAuth();
@@ -586,6 +1547,11 @@ export default function MyCardScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [layoutMode, setLayoutMode] = useState('fab'); // 'fab' or 'footer'
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [allCards, setAllCards] = useState([]);
+  const [cardSelectorOpen, setCardSelectorOpen] = useState(false);
+  const [isLocationSharing, setIsLocationSharing] = useState(false);
+  const [locationMapOpen, setLocationMapOpen] = useState(false);
 
   useEffect(() => {
     const loadLayoutPreference = async () => {
@@ -651,6 +1617,7 @@ export default function MyCardScreen() {
           if (ts && cs) {
             setTenantSlug(ts);
             setCardSlug(cs);
+            if (data?.card_id) setCardId(data.card_id);
             const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
@@ -663,6 +1630,7 @@ export default function MyCardScreen() {
                 if (card.profile_image) setAvatarUrl(resolveUrl(card.profile_image));
                 const finalName = (appLang === 'ar' && card.name_ar) ? card.name_ar : (card.name || user?.name || data?.name);
                 setDisplayName(finalName);
+                if (card.id) setCardId(card.id);
               }
             }).catch(() => {});
             return;
@@ -676,6 +1644,8 @@ export default function MyCardScreen() {
         // Use slugs stored at login time — no API call needed
         const tSlug = user?.tenant_slug || '';
         const cSlug = user?.card_slug || parseDigCardPath(user?.card_url)?.cardSlug || '';
+
+        if (user?.card_id) setCardId(user.card_id);
 
         if (tSlug && cSlug) {
           setTenantSlug(tSlug);
@@ -691,6 +1661,7 @@ export default function MyCardScreen() {
               if (card.profile_image) setAvatarUrl(resolveUrl(card.profile_image));
               const finalName = (appLang === 'ar' && card.name_ar) ? card.name_ar : (card.name || user?.name);
               setDisplayName(finalName);
+              if (card.id) setCardId(card.id);
             }
           }).catch(() => {});
           return;
@@ -704,6 +1675,7 @@ export default function MyCardScreen() {
           if (ts && cs) {
             setTenantSlug(ts);
             setCardSlug(cs);
+            if (data?.card_id) setCardId(data.card_id);
             const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || user?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
@@ -716,6 +1688,7 @@ export default function MyCardScreen() {
                 if (card.profile_image) setAvatarUrl(resolveUrl(card.profile_image));
                 const finalName = (appLang === 'ar' && card.name_ar) ? card.name_ar : (card.name || user?.name || data?.name);
                 setDisplayName(finalName);
+                if (card.id) setCardId(card.id);
               }
             }).catch(() => {});
           }
@@ -726,8 +1699,21 @@ export default function MyCardScreen() {
         // Admin / sub_admin
         const { data } = await cardsApi.getAll();
         const cards = Array.isArray(data) ? data : data?.cards ?? [];
+        setAllCards(cards);
         if (!cards.length) return;
-        const cardData = cards[0];
+
+        let cardData = cards[0];
+        try {
+          const savedCardId = await AsyncStorage.getItem('admin_selected_card_id');
+          if (savedCardId) {
+            const found = cards.find(c => String(c.id) === savedCardId);
+            if (found) cardData = found;
+          } else {
+            // Save default card ID to AsyncStorage so the background location task has access
+            await AsyncStorage.setItem('admin_selected_card_id', String(cardData.id)).catch(() => {});
+          }
+        } catch {}
+
         const tSlug =
           user?.tenant_slug || user?.schema_slug || user?.schemaSlug ||
           cardData?.tenant_slug || cardData?.schema_slug ||
@@ -751,6 +1737,149 @@ export default function MyCardScreen() {
       setLoading(false);
     }
   }, [user, token, appLang]);
+
+  const handleSelectCard = useCallback(async (cardData) => {
+    if (!cardData) return;
+    const tSlug =
+      user?.tenant_slug || user?.schema_slug || user?.schemaSlug ||
+      cardData?.tenant_slug || cardData?.schema_slug ||
+      parseDigCardPath(cardData?.card_url)?.tenantSlug || '';
+    const cSlug = cardData?.slug || parseDigCardPath(cardData?.card_url)?.cardSlug || '';
+    
+    setTenantSlug(tSlug);
+    setCardSlug(cSlug);
+    if (cardData.id) {
+      setCardId(cardData.id);
+      await AsyncStorage.setItem('admin_selected_card_id', String(cardData.id)).catch(() => {});
+    }
+    const dName = (appLang === 'ar' && (cardData.name_ar || user?.name_ar)) ? (cardData.name_ar || user?.name_ar) : (cardData.name || user?.name || 'My Card');
+    setDisplayName(dName);
+    setAvatarUrl(resolveUrl(cardData.profile_image));
+    if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
+    else if (cardData?.card_url) {
+      const raw = String(cardData.card_url).replace(/^#?\/?/, '');
+      setCardUrl(`${FRONTEND_BASE_URL}/#${raw}`);
+    }
+  }, [user, appLang]);
+
+  const startTracking = async () => {
+    try {
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus !== 'granted') {
+        Alert.alert('Permission Denied', 'Foreground location permission is required to share location.');
+        setIsLocationSharing(false);
+        return;
+      }
+
+      try {
+        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+        if (bgStatus === 'granted') {
+          const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+          if (!hasStarted) {
+            await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+              accuracy: Location.Accuracy.Balanced,
+              timeInterval: 60000,
+              distanceInterval: 10,
+              foregroundService: {
+                notificationTitle: "DigCard Location Sharing",
+                notificationBody: "Sharing your location with your workspace admin.",
+                notificationColor: BRAND
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Background tracking failed to start', err.message);
+      }
+
+      await AsyncStorage.setItem('location_tracking_enabled', 'true');
+      setIsLocationSharing(true);
+      triggerLocationUpdate();
+    } catch (err) {
+      console.warn('[startTracking Error]', err);
+    }
+  };
+
+  const stopTracking = async () => {
+    try {
+      await AsyncStorage.setItem('location_tracking_enabled', 'false');
+      setIsLocationSharing(false);
+      try {
+        const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        if (hasStarted) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        }
+      } catch {}
+      if (cardId) {
+        await cardsApi.updateMyLocation({ is_tracking: false, cardId: cardId }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[stopTracking Error]', err);
+    }
+  };
+
+  const triggerLocationUpdate = useCallback(async () => {
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (loc && loc.coords) {
+        await cardsApi.updateMyLocation({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          is_tracking: true,
+          cardId: cardId
+        });
+      }
+    } catch (err) {
+      console.warn('[triggerLocationUpdate]', err.message);
+    }
+  }, [cardId]);
+
+  useEffect(() => {
+    let interval = null;
+    if (isLocationSharing) {
+      triggerLocationUpdate();
+      interval = setInterval(triggerLocationUpdate, 45000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLocationSharing, triggerLocationUpdate]);
+
+  useEffect(() => {
+    const loadTrackingPref = async () => {
+      const enabled = await AsyncStorage.getItem('location_tracking_enabled');
+      if (enabled === 'true') {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          setIsLocationSharing(true);
+          try {
+            const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+            if (bgStatus === 'granted') {
+              const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+              if (!hasStarted) {
+                await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+                  accuracy: Location.Accuracy.Balanced,
+                  timeInterval: 60000,
+                  distanceInterval: 10,
+                  foregroundService: {
+                    notificationTitle: "DigCard Location Sharing",
+                    notificationBody: "Sharing your location with your workspace admin.",
+                    notificationColor: BRAND
+                  }
+                });
+              }
+            }
+          } catch {}
+        }
+      }
+    };
+    loadTrackingPref();
+  }, []);
+
+  const handleToggleLocationSharing = (val) => {
+    if (val) startTracking();
+    else stopTracking();
+  };
 
   useEffect(() => { fetchCard(); }, [fetchCard, appLang]);
 
@@ -805,6 +1934,35 @@ export default function MyCardScreen() {
     true;
   `;
 
+  if (locationMapOpen) {
+    return (
+      <View style={{ flex: 1, backgroundColor: BRAND }}>
+        <StatusBar barStyle="light-content" backgroundColor={BRAND} translucent={false} />
+        <AdminMapScreen
+          onBack={() => setLocationMapOpen(false)}
+          user={user}
+          isAR={appLang === 'ar'}
+          isDark={isAppDark}
+        />
+      </View>
+    );
+  }
+
+  if (analyticsOpen) {
+    return (
+      <View style={{ flex: 1, backgroundColor: BRAND }}>
+        <StatusBar barStyle="light-content" backgroundColor={BRAND} translucent={false} />
+        <AnalyticsScreen
+          onBack={() => setAnalyticsOpen(false)}
+          user={user}
+          isAR={appLang === 'ar'}
+          isDark={isAppDark}
+          brandColor={BRAND}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: BRAND }}>
       <StatusBar barStyle="light-content" backgroundColor={BRAND} translucent={false} />
@@ -818,9 +1976,19 @@ export default function MyCardScreen() {
                 <Text style={s.menuAvatarText}>{(displayName || user?.name || 'U').charAt(0).toUpperCase()}</Text>
               </View>}
         </TouchableOpacity>
-        <Text style={[s.topTitle, { textAlign: appLang === 'ar' ? 'right' : 'left' }]} numberOfLines={1}>{displayName || (appLang === 'ar' ? 'بطاقتي' : 'My Card')}</Text>
+        <Text style={[s.topTitle, { textAlign: appLang === 'ar' ? 'right' : 'left', flex: 1, marginLeft: 12 }]} numberOfLines={1}>
+          {displayName || (appLang === 'ar' ? 'بطاقتي' : 'My Card')}
+          {isLocationSharing && (
+            <Text style={{ color: '#10B981', fontSize: 13, fontWeight: 'bold' }}> 📡</Text>
+          )}
+        </Text>
         
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {user?.role !== 'card_user' && allCards.length > 0 && (
+            <TouchableOpacity onPress={() => setCardSelectorOpen(true)} style={[s.logoutBtn, { marginRight: 14 }]} hitSlop={10}>
+              <Ionicons name="people-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={handleLogout} style={s.logoutBtn} hitSlop={10}>
             <Ionicons name="log-out-outline" size={22} color="#fff" />
           </TouchableOpacity>
@@ -980,6 +2148,25 @@ export default function MyCardScreen() {
         user={{ ...user, name: displayName || user?.name }}
         avatarUrl={avatarUrl}
         onLogout={() => { setSidebarOpen(false); handleLogout(); }}
+        onOpenAnalytics={() => {
+          setSidebarOpen(false);
+          setAnalyticsOpen(true);
+        }}
+        onOpenLocationMap={() => {
+          setSidebarOpen(false);
+          setLocationMapOpen(true);
+        }}
+        isLocationSharing={isLocationSharing}
+        onToggleLocationSharing={handleToggleLocationSharing}
+      />
+
+      <CardSelectorModal
+        visible={cardSelectorOpen}
+        onClose={() => setCardSelectorOpen(false)}
+        cards={allCards}
+        onSelect={handleSelectCard}
+        selectedCardId={cardId}
+        isAR={appLang === 'ar'}
       />
     </View>
   );

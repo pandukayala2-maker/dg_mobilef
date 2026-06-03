@@ -19,8 +19,8 @@ function TabIcon({ name, color, size, focused }) {
 export default function TabsLayout() {
   const { isDark, language, brandColor } = useAppContext();
   const insets = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, 8);
-  const tabBarHeight = 56 + bottomPad;
+  const bottomPad = insets.bottom > 0 ? insets.bottom : (Platform.OS === 'ios' ? 12 : 8);
+  const tabBarHeight = 58 + bottomPad;
 
   return (
     <Tabs
@@ -42,7 +42,6 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: isDark ? '#64748B' : '#94A3B8',
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,
-        tabBarHideOnKeyboard: true,
       }}
     >
       <Tabs.Screen
@@ -98,7 +97,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopColor: '#F1F5F9',
     borderTopWidth: 1,
-    paddingTop: 8,
+    paddingTop: 4,
     elevation: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -6 },
@@ -106,12 +105,12 @@ const styles = StyleSheet.create({
     shadowRadius: 15,
   },
   tabLabel: { 
-    fontSize: 12, 
+    fontSize: 11, 
     fontWeight: '700',
-    marginTop: 6,
+    marginTop: 2,
   },
   tabItem: {
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   iconWrap: { 
     alignItems: 'center', 

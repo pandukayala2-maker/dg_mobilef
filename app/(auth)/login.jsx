@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { authApi } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BRAND = '#1b4654';
 
@@ -29,6 +30,19 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const passwordRef = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const savedTenant = await AsyncStorage.getItem('last_tenant_slug');
+        const savedEmail = await AsyncStorage.getItem('last_email');
+        if (savedTenant) setTenantSlug(savedTenant);
+        if (savedEmail) setEmail(savedEmail);
+      } catch (err) {
+        console.warn('[LoginScreen load saved fields failed]', err);
+      }
+    })();
+  }, []);
 
   const toggleShowPass = () => {
     setShowPass((v) => !v);
@@ -49,6 +63,13 @@ export default function LoginScreen() {
         password,
         tenantSlug: tenantSlug.trim().toLowerCase(),
       });
+
+      // Save credentials for pre-fill
+      try {
+        await AsyncStorage.setItem('last_tenant_slug', tenantSlug.trim().toLowerCase());
+        await AsyncStorage.setItem('last_email', email.trim().toLowerCase());
+      } catch {}
+
       await setToken(data.token);
       setUser(data.user ?? data);
       router.replace('/(tabs)/mycard');
@@ -130,6 +151,12 @@ export default function LoginScreen() {
               ) : (
                 <Text style={styles.btnText}>Sign in</Text>
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/(auth)/forgot-password')}>
+              <Text style={styles.linkText}>
+                Forgot your password? <Text style={styles.linkBold}>Reset here</Text>
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

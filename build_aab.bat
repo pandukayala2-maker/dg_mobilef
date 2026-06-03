@@ -22,7 +22,7 @@ if defined JAVA_HOME set "PATH=%JAVA_HOME%\bin;%PATH%"
 if defined ANDROID_HOME set "PATH=%ANDROID_HOME%\platform-tools;%PATH%"
 
 echo ==========================================
-echo    ANSOFTT DC - Clean APK Build (Offline)
+echo    ANSOFTT DC - Clean AAB Build (Offline)
 echo ==========================================
 echo.
 echo [1/2] Preparing project (Full Clean)...
@@ -37,18 +37,18 @@ echo [1.5/2] Fixing Gradle version and Memory (fixing OutOfMemory: Metaspace)...
 call node patch_build.js
 
 echo.
-echo [2/2] Compiling APK (this may take a few minutes)...
+echo [2/2] Compiling AAB (this may take a few minutes)...
 cd android
 call gradlew.bat clean
-call gradlew.bat assembleRelease
+call gradlew.bat bundleRelease
 
 echo.
-if exist "app\build\outputs\apk\release\app-release.apk" (
-    echo [SUCCESS] APK generated!
-    echo Location: %cd%\app\build\outputs\apk\release\app-release.apk
+if exist "app\build\outputs\bundle\release\app-release.aab" (
+    echo [SUCCESS] AAB generated!
+    echo Location: %cd%\app\build\outputs\bundle\release\app-release.aab
     echo.
-    echo Copying APK to project root...
-    copy "app\build\outputs\apk\release\app-release.apk" "..\dgmobile_release_v1.1.1.apk"
+    echo Copying AAB to project root...
+    copy "app\build\outputs\bundle\release\app-release.aab" "..\dgmobile_release_v1.1.1.aab"
 ) else (
     echo [ERROR] Build failed. Please check the logs above for errors.
 )

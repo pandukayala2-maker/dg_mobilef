@@ -60,9 +60,25 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+let logoutCallback = null;
+
+export const registerLogoutCallback = (cb) => {
+  logoutCallback = cb;
+};
+
 api.interceptors.response.use(
   (res) => res,
-  (err) => Promise.reject(err),
+  async (err) => {
+    if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+      try {
+        await tokenStore.remove('auth_token');
+      } catch {}
+      if (logoutCallback) {
+        logoutCallback();
+      }
+    }
+    return Promise.reject(err);
+  },
 );
 
 export default api;
@@ -86,6 +102,8 @@ export const cardsApi = {
   getPublicWalletPass: (tenantSlug, cardSlug) => api.post(`/public/card/wallet/${tenantSlug}/${cardSlug}`),
 
   getMeetings: () => api.get('/cards/calendar/meetings'),
+  createMeeting: (data) => api.post('/cards/calendar/meetings', data),
+  updateMyLocation: (data) => api.put('/cards/owner/my-card/location', data),
 };
 
 export const leadsApi = {

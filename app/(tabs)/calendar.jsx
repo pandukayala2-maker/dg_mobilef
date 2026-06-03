@@ -24,35 +24,60 @@ const BRAND = '#1b4654';
 const deduplicateMeetings = (meetingsList) => {
   if (!Array.isArray(meetingsList)) return [];
   const pass1 = [];
-  const seen = new Set();
+  const seenOnDay = new Set(); // For title + YYYY-MM-DD matches (applies to device events)
 
   for (const m of meetingsList) {
     if (!m) continue;
     const titleNormalized = String(m.title || '').trim().toLowerCase();
 
-    let datePart = '';
+    let mEpoch = 0;
+    let localDateStr = '';
     if (m.time) {
       if (m.allDay) {
-        // Extract YYYY-MM-DD directly from the string to avoid UTC timezone shift
         const match = String(m.time).match(/^(\d{4}-\d{2}-\d{2})/);
-        datePart = match ? match[1] : String(m.time).split('T')[0];
+        localDateStr = match ? match[1] : String(m.time).split('T')[0];
       } else {
         const d = new Date(m.time);
         if (!Number.isNaN(d.getTime())) {
-          datePart = String(Math.floor(d.getTime() / 60000));
+          mEpoch = d.getTime();
+          localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         }
       }
     }
 
-    const key = `${titleNormalized}_${datePart}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      pass1.push(m);
+    const dayKey = `${titleNormalized}_${localDateStr}`;
+
+    // Skip device events (holidays, synced items) if we have already seen this title on the same day
+    if (m.isDeviceEvent && localDateStr && seenOnDay.has(dayKey)) {
+      continue;
     }
+
+    // Skip duplicate local/backend meetings if we have already accepted one with the same title within a 5-minute window
+    const isDuplicate = pass1.some((existing) => {
+      const existingTitle = String(existing.title || '').trim().toLowerCase();
+      if (existingTitle !== titleNormalized) return false;
+
+      if (mEpoch && existing.time) {
+        const exD = new Date(existing.time);
+        if (!Number.isNaN(exD.getTime())) {
+          const diffMs = Math.abs(mEpoch - exD.getTime());
+          return diffMs <= 5 * 60 * 1000; // 5 minutes window
+        }
+      }
+      return false;
+    });
+
+    if (isDuplicate) {
+      continue;
+    }
+
+    if (localDateStr) {
+      seenOnDay.add(dayKey);
+    }
+    pass1.push(m);
   }
 
   // Second pass: remove allDay events that are the "end-date echo" of another allDay event
-  // (same title, exactly 1 day later — iOS stores allDay endDate as next midnight)
   const allDayMap = {};
   for (const m of pass1) {
     if (!m.allDay || !m.time) continue;
@@ -70,7 +95,6 @@ const deduplicateMeetings = (meetingsList) => {
     if (!match) return true;
     const thisDate = new Date(match[1]);
     const siblings = allDayMap[title] || [];
-    // Drop this entry if there's an earlier sibling exactly 1 day before
     return !siblings.some((d) => {
       const diff = thisDate - new Date(d);
       return diff > 0 && diff <= 24 * 60 * 60 * 1000;
@@ -232,17 +256,7 @@ export default function CalendarScreen() {
         };
 
         if (Number.isNaN(targetDate.getTime()) || targetDate.getTime() <= Date.now()) {
-          // Reminder time already passed — fire immediately if meeting is within 30 min window
-          const meetingTime = new Date(meeting.time || meeting.startAt || 0);
-          const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
-          if (meetingTime.getTime() >= thirtyMinAgo) {
-            await Notifications.scheduleNotificationAsync({
-              identifier: `meeting_${meeting.id}`,
-              content: notifContent,
-              trigger: null,
-            });
-            count++;
-          }
+          // Skip scheduling notifications that are in the past
           continue;
         }
 
@@ -309,21 +323,7 @@ export default function CalendarScreen() {
       const { data } = await cardsApi.getMeetings();
       const backendMeetings = data.meetings || [];
 
-      // Fire immediate in-app notification for any newly detected backend meetings
-      if (showSyncing && knownMeetingIds.current !== null && notifGranted && Platform.OS !== 'web') {
-        const newOnes = backendMeetings.filter(m => !knownMeetingIds.current.has(String(m.id)));
-        for (const m of newOnes) {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: isAR ? '📅 اجتماع جديد تمت إضافته' : '📅 New Meeting Added',
-              body: m.title,
-              sound: true,
-              ...(Platform.OS === 'android' && { channelId: 'calendar-reminders' }),
-            },
-            trigger: null,
-          });
-        }
-      }
+      // Sync notifications disabled per user request (only fire notifications at scheduled reminder times)
       knownMeetingIds.current = new Set(backendMeetings.map(m => String(m.id)));
 
       // 2. Fetch local meetings
@@ -362,9 +362,9 @@ export default function CalendarScreen() {
       // Merge and deduplicate, prioritizing local/backend events
       const allMerged = [...backendMeetings, ...localMeetings, ...deviceMeetings];
       const sortedForDeduplication = [...allMerged].sort((a, b) => {
-        const aDev = a.isDeviceEvent ? 1 : 0;
-        const bDev = b.isDeviceEvent ? 1 : 0;
-        return aDev - bDev;
+        const aPri = a.isDeviceEvent ? 2 : (a.isLocal ? 1 : 0);
+        const bPri = b.isDeviceEvent ? 2 : (b.isLocal ? 1 : 0);
+        return aPri - bPri;
       });
       setMeetings(deduplicateMeetings(sortedForDeduplication));
       setLastSynced(new Date());
@@ -400,9 +400,9 @@ export default function CalendarScreen() {
       }
       const allMerged = [...localMeetings, ...deviceMeetings];
       const sortedForDeduplication = [...allMerged].sort((a, b) => {
-        const aDev = a.isDeviceEvent ? 1 : 0;
-        const bDev = b.isDeviceEvent ? 1 : 0;
-        return aDev - bDev;
+        const aPri = a.isDeviceEvent ? 2 : (a.isLocal ? 1 : 0);
+        const bPri = b.isDeviceEvent ? 2 : (b.isLocal ? 1 : 0);
+        return aPri - bPri;
       });
       setMeetings(deduplicateMeetings(sortedForDeduplication));
     } finally {
@@ -447,29 +447,13 @@ export default function CalendarScreen() {
         return;
       }
 
-      const offsetMs = (typeof reminderOffset === 'number' ? reminderOffset : 10) * 60 * 1000;
-      const rawNotifyAt = new Date(startDateTime.getTime() - offsetMs);
-      // If reminder time already passed, fire 5 seconds after saving instead
-      const notificationAt = rawNotifyAt.getTime() <= Date.now()
-        ? new Date(Date.now() + 5000)
-        : rawNotifyAt;
-
-      const newMeeting = {
-        id: `local_${Date.now()}`,
+      await cardsApi.createMeeting({
         title,
-        time: startDateTime.toISOString(),
         startAt: startDateTime.toISOString(),
         endAt: endDateTime.toISOString(),
-        notificationAt: notificationAt.toISOString(),
         noteText,
-        isLocal: true,
-      };
+      });
 
-      const localRaw = await AsyncStorage.getItem('mycard_local_meetings');
-      const localMeetings = localRaw ? JSON.parse(localRaw) : [];
-      const updated = [newMeeting, ...localMeetings];
-
-      await AsyncStorage.setItem('mycard_local_meetings', JSON.stringify(updated));
       setScheduleModalOpen(false);
 
       await fetchMeetings();
@@ -479,7 +463,7 @@ export default function CalendarScreen() {
       );
     } catch (err) {
       console.error(err);
-      Alert.alert('Error', 'Could not save the reminder.');
+      Alert.alert('Error', 'Could not save the reminder to backend. It might be saved locally instead.');
     }
   };
 
@@ -730,9 +714,12 @@ export default function CalendarScreen() {
   const formatDateTime = (meeting) => {
     if (!meeting) return { date: '', time: '', ampm: '' };
     const d = getMeetingLocalDate(meeting);
-    const dateStr = d.toLocaleDateString(isAR ? 'ar' : 'en-US', {
-      month: 'short', day: 'numeric',
-    });
+    
+    // Manually format month and day to prevent timezone/Hermes engine toLocaleDateString leaks of time components
+    const monthNamesEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNamesAr = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    const month = isAR ? monthNamesAr[d.getMonth()] : monthNamesEn[d.getMonth()];
+    const dateStr = isAR ? `${d.getDate()} ${month}` : `${month} ${d.getDate()}`;
     
     if (meeting.allDay) {
       return { 
@@ -744,7 +731,7 @@ export default function CalendarScreen() {
 
     let h = d.getHours();
     const m = String(d.getMinutes()).padStart(2, '0');
-    const ampm = h >= 12 ? 'PM' : 'AM';
+    const ampm = isAR ? (h >= 12 ? 'م' : 'ص') : (h >= 12 ? 'PM' : 'AM');
     h = h % 12 || 12;
     return { date: dateStr, time: `${h}:${m}`, ampm };
   };
