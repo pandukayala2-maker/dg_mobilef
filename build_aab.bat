@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set CMAKE_BUILD_PARALLEL_LEVEL=2
 
 :: Set Environment Variables for the build session (fallback to standard paths if not pre-defined)
 if not defined JAVA_HOME (
@@ -40,7 +41,7 @@ echo.
 echo [2/2] Compiling AAB (this may take a few minutes)...
 cd android
 call gradlew.bat clean
-call gradlew.bat bundleRelease
+call gradlew.bat bundleRelease --no-daemon --max-workers=2 -Dorg.gradle.parallel=false
 
 echo.
 if exist "app\build\outputs\bundle\release\app-release.aab" (
@@ -48,7 +49,7 @@ if exist "app\build\outputs\bundle\release\app-release.aab" (
     echo Location: %cd%\app\build\outputs\bundle\release\app-release.aab
     echo.
     echo Copying AAB to project root...
-    copy "app\build\outputs\bundle\release\app-release.aab" "..\dgmobile_release_v1.1.1.aab"
+    copy "app\build\outputs\bundle\release\app-release.aab" "..\dgmobile_release_v1.1.4.aab"
 ) else (
     echo [ERROR] Build failed. Please check the logs above for errors.
 )

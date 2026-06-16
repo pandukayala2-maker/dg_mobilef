@@ -2,7 +2,7 @@
   "expo": {
     "name": "ANSOFTT DC",
     "slug": "dgmobile",
-    "version": "1.1.0",
+    "version": "1.1.4",
     "orientation": "portrait",
     "icon": "./assets/appicon.png",
     "userInterfaceStyle": "automatic",
@@ -23,24 +23,29 @@
       }
     },
     "android": {
-      "versionCode": 9,
+      "versionCode": 14,
       "adaptiveIcon": {
         "foregroundImage": "./assets/appicon.png",
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.ansoftt.dc",
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ],
       "permissions": [
         "RECORD_AUDIO",
         "CAMERA",
         "READ_CALENDAR",
         "WRITE_CALENDAR",
-        "RECEIVE_BOOT_COMPLETED",
-        "SCHEDULE_EXACT_ALARM",
-        "USE_EXACT_ALARM",
         "VIBRATE",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
         "READ_CONTACTS",
@@ -59,12 +64,6 @@
         "expo-camera",
         {
           "cameraPermission": "Allow DigCard to access your camera to scan QR codes."
-        }
-      ],
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Allow DigCard to access your photos."
         }
       ],
       [
@@ -96,8 +95,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow ANSOFTT DC to use your location to share with your workspace admin.",
-          "isAndroidBackgroundLocationEnabled": true
+          "locationWhenInUsePermission": "Allow ANSOFTT DC to use your location to share with your workspace admin."
         }
       ],
       [

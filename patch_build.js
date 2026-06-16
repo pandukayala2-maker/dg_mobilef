@@ -123,4 +123,39 @@ if (fs.existsSync(buildGradlePath)) {
   fs.writeFileSync(buildGradlePath, content, 'utf8');
 }
 
+// 6. Patch AndroidManifest.xml to block/remove media permissions
+const manifestPath = path.join(__dirname, 'android', 'app', 'src', 'main', 'AndroidManifest.xml');
+if (fs.existsSync(manifestPath)) {
+  let content = fs.readFileSync(manifestPath, 'utf8');
+  
+  const permissionsToRemove = [
+    'android.permission.READ_MEDIA_IMAGES',
+    'android.permission.READ_MEDIA_VIDEO',
+    'android.permission.READ_MEDIA_AUDIO',
+    'android.permission.READ_MEDIA_VISUAL_USER_SELECTED',
+    'android.permission.ACCESS_BACKGROUND_LOCATION',
+    'android.permission.USE_EXACT_ALARM',
+    'android.permission.SCHEDULE_EXACT_ALARM'
+  ];
+  
+  permissionsToRemove.forEach(perm => {
+    // Check if the permission already exists in manifest
+    const regex = new RegExp(`<uses-permission\\s+android:name="${perm}"[^>]*\\/?>`, 'g');
+    if (content.match(regex)) {
+      content = content.replace(regex, `<uses-permission android:name="${perm}" tools:node="remove"/>`);
+    } else {
+      // If it doesn't exist, insert it before </manifest> to make sure it's removed during build merge
+      const insertIdx = content.indexOf('</manifest>');
+      if (insertIdx !== -1) {
+        content = content.slice(0, insertIdx) + `  <uses-permission android:name="${perm}" tools:node="remove"/>\n` + content.slice(insertIdx);
+      }
+    }
+  });
+  
+  fs.writeFileSync(manifestPath, content, 'utf8');
+  console.log('[SUCCESS] Patched AndroidManifest.xml to explicitly tools:node="remove" media permissions');
+} else {
+  console.error('[ERROR] AndroidManifest.xml not found at: ' + manifestPath);
+}
+
 console.log('--- Finished build patches ---');

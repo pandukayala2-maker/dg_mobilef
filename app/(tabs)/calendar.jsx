@@ -123,6 +123,7 @@ export default function CalendarScreen() {
   const [calendarPermission, setCalendarPermission] = useState(false);
   const [calendarSyncing, setCalendarSyncing] = useState(false);
   const [deviceEventMap, setDeviceEventMap] = useState({});
+  const DEVICE_EVENT_MAP_KEY = 'dg_device_event_map_v1';
   const [phoneCalendarPermission, setPhoneCalendarPermission] = useState('undetermined');
   const [showPhoneEvents, setShowPhoneEvents] = useState(true);
   const [showPast, setShowPast] = useState(false);
@@ -193,7 +194,13 @@ export default function CalendarScreen() {
         if (val !== null) {
           setShowPhoneEvents(val === 'true');
         }
-        
+
+        // Restore persisted sync map so we don't re-add already-synced events
+        const savedMap = await AsyncStorage.getItem('dg_device_event_map_v1');
+        if (savedMap) {
+          try { setDeviceEventMap(JSON.parse(savedMap)); } catch {}
+        }
+
         const perm = await checkCalendarPermission();
         setPhoneCalendarPermission(perm.status);
       } catch (err) {
@@ -525,29 +532,54 @@ export default function CalendarScreen() {
 
       const nextMap = { ...deviceEventMap };
       let synced = 0;
+      let skipped = 0;
+      const now = Date.now();
 
       for (const meeting of meetings) {
+        // Skip already-synced meetings (persisted across restarts)
         if (nextMap[meeting.id]) continue;
 
         const startAt = meeting.startAt || meeting.time;
-        const endAt = meeting.endAt || new Date(new Date(startAt).getTime() + (60 * 60 * 1000)).toISOString();
+        if (!startAt) { skipped += 1; continue; }
 
-        const result = await addCalendarEvent({
-          title: meeting.title,
-          startDate: startAt,
-          endDate: endAt,
-          notes: meeting.noteText || '',
-          url: meeting.googleCalendarUrl,
-        });
+        // Skip meetings that have already passed
+        const startMs = new Date(startAt).getTime();
+        if (Number.isNaN(startMs) || startMs < now - 60 * 60 * 1000) {
+          skipped += 1;
+          continue;
+        }
 
-        nextMap[meeting.id] = result.eventId;
-        synced += 1;
+        const endAt = meeting.endAt
+          || new Date(startMs + 60 * 60 * 1000).toISOString();
+
+        try {
+          const result = await addCalendarEvent({
+            title: meeting.title || 'Meeting',
+            startDate: startAt,
+            endDate: endAt,
+            notes: meeting.noteText || '',
+            url: meeting.googleCalendarUrl,
+          });
+          nextMap[meeting.id] = result.eventId;
+          synced += 1;
+        } catch (meetingErr) {
+          console.warn('[syncToDevice] skipped meeting', meeting.id, meetingErr?.message);
+          skipped += 1;
+        }
       }
 
       setDeviceEventMap(nextMap);
+      // Persist so re-opening the app won't re-sync the same events
+      await AsyncStorage.setItem('dg_device_event_map_v1', JSON.stringify(nextMap));
       setCalendarPermission(true);
 
-      Alert.alert('Synced', `${synced} meeting${synced === 1 ? '' : 's'} added to device calendar.`);
+      if (synced === 0) {
+        Alert.alert('Up to date', skipped > 0
+          ? 'All upcoming meetings are already synced to your device calendar.'
+          : 'No upcoming meetings to sync.');
+      } else {
+        Alert.alert('Synced ✓', `${synced} upcoming meeting${synced === 1 ? '' : 's'} added to your device calendar.`);
+      }
     } catch (err) {
       Alert.alert('Sync failed', err?.message || 'Could not sync calendar events.');
     } finally {
@@ -564,6 +596,7 @@ export default function CalendarScreen() {
       setDeviceEventMap((prev) => {
         const clone = { ...prev };
         delete clone[meetingId];
+        AsyncStorage.setItem('dg_device_event_map_v1', JSON.stringify(clone)).catch(() => {});
         return clone;
       });
     } catch (err) {

@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set CMAKE_BUILD_PARALLEL_LEVEL=2
 
 :: Set Environment Variables for the build session (fallback to standard paths if not pre-defined)
 if not defined JAVA_HOME (
@@ -40,7 +41,7 @@ echo.
 echo [2/2] Compiling APK (this may take a few minutes)...
 cd android
 call gradlew.bat clean
-call gradlew.bat assembleRelease
+call gradlew.bat assembleRelease --no-daemon --max-workers=2 -Dorg.gradle.parallel=false
 
 echo.
 if exist "app\build\outputs\apk\release\app-release.apk" (
@@ -48,7 +49,7 @@ if exist "app\build\outputs\apk\release\app-release.apk" (
     echo Location: %cd%\app\build\outputs\apk\release\app-release.apk
     echo.
     echo Copying APK to project root...
-    copy "app\build\outputs\apk\release\app-release.apk" "..\dgmobile_release_v1.1.1.apk"
+    copy "app\build\outputs\apk\release\app-release.apk" "..\dgmobile_release_v1.1.3.apk"
 ) else (
     echo [ERROR] Build failed. Please check the logs above for errors.
 )

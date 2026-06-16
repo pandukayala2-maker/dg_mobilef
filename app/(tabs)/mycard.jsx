@@ -34,9 +34,6 @@ import { useAuth } from '@/context/AuthContext';
 import { cardsApi, authApi, API_BASE_URL, FRONTEND_BASE_URL, tokenStore, leadsApi } from '@/services/api';
 import { useAppContext } from '@/context/AppContext';
 import * as Location from 'expo-location';
-import * as TaskManager from 'expo-task-manager';
-
-const BACKGROUND_LOCATION_TASK = 'background-location-task';
 
 const BRAND = '#1b4654';
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -1119,7 +1116,7 @@ function ShareModal({ visible, onClose, cardUrl, displayName, cardId, cardSlug, 
       const clean = base64.includes('base64,') ? base64.split('base64,')[1] : base64;
       const uri = `${FileSystem.cacheDirectory}qrcode_${Date.now()}.png`;
       await FileSystem.writeAsStringAsync(uri, clean, { encoding: 'base64' });
-      const perm = await MediaLibrary.requestPermissionsAsync();
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
       if (perm.status === 'granted') {
         const asset = await MediaLibrary.createAssetAsync(uri);
         const album = await MediaLibrary.getAlbumAsync('ANSOFTT DC');
@@ -1529,6 +1526,99 @@ function CardSelectorModal({ visible, onClose, cards, onSelect, selectedCardId, 
   );
 }
 
+/* ─── Location Disclosure Modal ─── */
+function LocationDisclosureModal({ visible, onDecline, onAccept, isAR }) {
+  return (
+    <Modal visible={visible} animationType="fade" transparent statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+        <View style={{
+          backgroundColor: '#fff',
+          borderRadius: 20,
+          padding: 24,
+          width: '100%',
+          maxWidth: 380,
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.25,
+          shadowRadius: 10,
+          elevation: 8
+        }}>
+          {/* Icon */}
+          <View style={{
+            width: 60,
+            height: 60,
+            borderRadius: 30,
+            backgroundColor: 'rgba(27, 70, 84, 0.1)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginBottom: 16
+          }}>
+            <Ionicons name="location" size={32} color="#1b4654" />
+          </View>
+
+          {/* Title */}
+          <Text style={{
+            fontSize: 18,
+            fontWeight: '800',
+            color: '#111827',
+            marginBottom: 12,
+            textAlign: 'center'
+          }}>
+            {isAR ? 'الإفصاح عن مشاركة الموقع' : 'Location Sharing Disclosure'}
+          </Text>
+
+          {/* Description */}
+          <Text style={{
+            fontSize: 14,
+            color: '#4B5563',
+            lineHeight: 20,
+            textAlign: 'center',
+            marginBottom: 24
+          }}>
+            {isAR 
+              ? 'يجمع تطبيق ANSOFTT DC بيانات موقعك (الإحداثيات الجغرافية) أثناء استخدام التطبيق لتتمكن من مشاركتها مع مسؤول أو مدير مؤسستك لأغراض إثبات الحضور، الملاحة، وسجلات العمل الإدارية.\n\nنحن لا نتتبع موقعك عند إغلاق التطبيق، ولا نشارك البيانات مع أي معلنين أو جهات خارجية.'
+              : 'ANSOFTT DC collects location data (GPS coordinates) while the app is in use to allow you to share your coordinate location with your workspace/organization administrator for workplace attendance, navigation, and administrative logs.\n\nWe do not track your location when the app is closed, and we do not share location data with any third-party advertisers.'}
+          </Text>
+
+          {/* Buttons */}
+          <View style={{ flexDirection: isAR ? 'row-reverse' : 'row', gap: 12, width: '100%' }}>
+            <TouchableOpacity 
+              onPress={onDecline}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: '#F3F4F6',
+                alignItems: 'center'
+              }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#4B5563' }}>
+                {isAR ? 'رفض' : 'Decline'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={onAccept}
+              style={{
+                flex: 1,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: '#1b4654',
+                alignItems: 'center'
+              }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>
+                {isAR ? 'موافق' : 'Accept'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 /* ═══════════════════════════════ Main Screen ═══════════════════════════════ */
 export default function MyCardScreen() {
   const { user, token, logout } = useAuth();
@@ -1552,6 +1642,7 @@ export default function MyCardScreen() {
   const [cardSelectorOpen, setCardSelectorOpen] = useState(false);
   const [isLocationSharing, setIsLocationSharing] = useState(false);
   const [locationMapOpen, setLocationMapOpen] = useState(false);
+  const [locationDisclosureOpen, setLocationDisclosureOpen] = useState(false);
 
   useEffect(() => {
     const loadLayoutPreference = async () => {
@@ -1621,7 +1712,7 @@ export default function MyCardScreen() {
             const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
-            setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}?lang=${appLang}`);
+            setCardUrl(`${FRONTEND_BASE_URL}/?v=${Date.now()}#/card/${ts}/${cs}?lang=${appLang}`);
 
             // Enrich from public card endpoint
             cardsApi.getPublicCard(ts, cs).then(({ data: cardRes }) => {
@@ -1652,7 +1743,7 @@ export default function MyCardScreen() {
           setCardSlug(cSlug);
           const dName = (appLang === 'ar' && user?.name_ar) ? user.name_ar : (user?.name || 'My Card');
           setDisplayName(dName);
-          setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
+          setCardUrl(`${FRONTEND_BASE_URL}/?v=${Date.now()}#/card/${tSlug}/${cSlug}?lang=${appLang}`);
 
           // Enrich from public card endpoint
           cardsApi.getPublicCard(tSlug, cSlug).then(({ data: cardRes }) => {
@@ -1679,7 +1770,7 @@ export default function MyCardScreen() {
             const dName = (appLang === 'ar' && (data?.name_ar || user?.name_ar)) ? (data.name_ar || user?.name_ar) : (data?.name || user?.name || 'My Card');
             setDisplayName(dName);
             if (data?.profile_image) setAvatarUrl(resolveUrl(data.profile_image));
-            setCardUrl(`${FRONTEND_BASE_URL}/#/card/${ts}/${cs}?lang=${appLang}`);
+            setCardUrl(`${FRONTEND_BASE_URL}/?v=${Date.now()}#/card/${ts}/${cs}?lang=${appLang}`);
 
             // Enrich from public card endpoint
             cardsApi.getPublicCard(ts, cs).then(({ data: cardRes }) => {
@@ -1725,10 +1816,10 @@ export default function MyCardScreen() {
         const dName = (appLang === 'ar' && (cardData.name_ar || user?.name_ar)) ? (cardData.name_ar || user?.name_ar) : (cardData.name || user?.name || 'My Card');
         setDisplayName(dName);
         setAvatarUrl(resolveUrl(cardData.profile_image));
-        if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
+        if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/?v=${Date.now()}#/card/${tSlug}/${cSlug}?lang=${appLang}`);
         else if (cardData?.card_url) {
           const raw = String(cardData.card_url).replace(/^#?\/?/, '');
-          setCardUrl(`${FRONTEND_BASE_URL}/#${raw}`);
+          setCardUrl(`${FRONTEND_BASE_URL}/?v=${Date.now()}#${raw}`);
         }
       }
     } catch (err) {
@@ -1755,10 +1846,10 @@ export default function MyCardScreen() {
     const dName = (appLang === 'ar' && (cardData.name_ar || user?.name_ar)) ? (cardData.name_ar || user?.name_ar) : (cardData.name || user?.name || 'My Card');
     setDisplayName(dName);
     setAvatarUrl(resolveUrl(cardData.profile_image));
-    if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/#/card/${tSlug}/${cSlug}?lang=${appLang}`);
+    if (tSlug && cSlug) setCardUrl(`${FRONTEND_BASE_URL}/?v=${Date.now()}#/card/${tSlug}/${cSlug}?lang=${appLang}`);
     else if (cardData?.card_url) {
       const raw = String(cardData.card_url).replace(/^#?\/?/, '');
-      setCardUrl(`${FRONTEND_BASE_URL}/#${raw}`);
+      setCardUrl(`${FRONTEND_BASE_URL}/?v=${Date.now()}#${raw}`);
     }
   }, [user, appLang]);
 
@@ -1766,32 +1857,10 @@ export default function MyCardScreen() {
     try {
       const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
       if (fgStatus !== 'granted') {
-        Alert.alert('Permission Denied', 'Foreground location permission is required to share location.');
+        Alert.alert('Permission Denied', 'Location permission is required to share location.');
         setIsLocationSharing(false);
         return;
       }
-
-      try {
-        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-        if (bgStatus === 'granted') {
-          const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-          if (!hasStarted) {
-            await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-              accuracy: Location.Accuracy.Balanced,
-              timeInterval: 60000,
-              distanceInterval: 10,
-              foregroundService: {
-                notificationTitle: "DigCard Location Sharing",
-                notificationBody: "Sharing your location with your workspace admin.",
-                notificationColor: BRAND
-              }
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('Background tracking failed to start', err.message);
-      }
-
       await AsyncStorage.setItem('location_tracking_enabled', 'true');
       setIsLocationSharing(true);
       triggerLocationUpdate();
@@ -1804,12 +1873,6 @@ export default function MyCardScreen() {
     try {
       await AsyncStorage.setItem('location_tracking_enabled', 'false');
       setIsLocationSharing(false);
-      try {
-        const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-        if (hasStarted) {
-          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-        }
-      } catch {}
       if (cardId) {
         await cardsApi.updateMyLocation({ is_tracking: false, cardId: cardId }).catch(() => {});
       }
@@ -1852,24 +1915,6 @@ export default function MyCardScreen() {
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status === 'granted') {
           setIsLocationSharing(true);
-          try {
-            const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
-            if (bgStatus === 'granted') {
-              const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-              if (!hasStarted) {
-                await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-                  accuracy: Location.Accuracy.Balanced,
-                  timeInterval: 60000,
-                  distanceInterval: 10,
-                  foregroundService: {
-                    notificationTitle: "DigCard Location Sharing",
-                    notificationBody: "Sharing your location with your workspace admin.",
-                    notificationColor: BRAND
-                  }
-                });
-              }
-            }
-          } catch {}
         }
       }
     };
@@ -1877,8 +1922,12 @@ export default function MyCardScreen() {
   }, []);
 
   const handleToggleLocationSharing = (val) => {
-    if (val) startTracking();
-    else stopTracking();
+    if (val) {
+      setSidebarOpen(false);
+      setLocationDisclosureOpen(true);
+    } else {
+      stopTracking();
+    }
   };
 
   useEffect(() => { fetchCard(); }, [fetchCard, appLang]);
@@ -2007,6 +2056,8 @@ export default function MyCardScreen() {
               style={{ flex: 1, backgroundColor: 'transparent' }}
               containerStyle={{ backgroundColor: 'transparent' }}
               startInLoadingState
+              cacheEnabled={false}
+              incognito={Platform.OS === 'android'}
               onMessage={handleMessage}
               renderLoading={() => (
                 <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: pageBg }}>
@@ -2167,6 +2218,19 @@ export default function MyCardScreen() {
         onSelect={handleSelectCard}
         selectedCardId={cardId}
         isAR={appLang === 'ar'}
+      />
+
+      <LocationDisclosureModal
+        visible={locationDisclosureOpen}
+        isAR={appLang === 'ar'}
+        onDecline={() => {
+          setLocationDisclosureOpen(false);
+          setIsLocationSharing(false);
+        }}
+        onAccept={() => {
+          setLocationDisclosureOpen(false);
+          startTracking();
+        }}
       />
     </View>
   );
